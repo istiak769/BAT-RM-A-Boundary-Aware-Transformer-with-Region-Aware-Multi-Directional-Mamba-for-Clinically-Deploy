@@ -567,7 +567,7 @@ import numpy as np
 from keras.metrics import MeanIoU
 
 # Number of classes in your segmentation problem
-n_classes = 5
+n_classes = 8
 
 # Initialize MeanIoU metric
 iou_metric = MeanIoU(num_classes=n_classes)
