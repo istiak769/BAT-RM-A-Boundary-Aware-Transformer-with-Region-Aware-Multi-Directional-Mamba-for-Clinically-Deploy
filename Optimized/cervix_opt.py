@@ -441,7 +441,7 @@ class CustomMeanIoU(tf.keras.metrics.MeanIoU):
         y_pred = tf.math.argmax(y_pred, axis=-1)
         return super().update_state(y_true, y_pred, sample_weight)
     
-custom_mIoU_metric = CustomMeanIoU(num_classes=5, name='mean_iou')
+custom_mIoU_metric = CustomMeanIoU(num_classes=8, name='mean_iou')
 
 
 
