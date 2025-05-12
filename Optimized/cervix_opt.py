@@ -5,14 +5,11 @@ import cv2
 from keras.utils import normalize
 import os
 import glob
-import cv2
-import numpy as np
 from matplotlib import pyplot as plt
 from sklearn.preprocessing import LabelEncoder
 
-
-SIZE_X= 256
-SIZE_Y= 256
+SIZE_X = 256
+SIZE_Y = 256
 
 class DataGenerator(Sequence):
     def __init__(self, image_paths, mask_paths, batch_size, image_size, class_rgb_array, n_classes):
@@ -22,13 +19,15 @@ class DataGenerator(Sequence):
         self.image_size = image_size
         self.class_rgb_array = class_rgb_array
         self.n_classes = n_classes
+        self.index = 0  # Initialize index for iteration
 
     def __len__(self):
         return int(np.ceil(len(self.image_paths) / self.batch_size))
 
     def __iter__(self):
-        self.indexes = np.arange(len(self))
+        self.indexes = np.arange(len(self.image_paths))
         np.random.shuffle(self.indexes)  # Shuffle if necessary
+        self.index = 0
         return self
 
     def __next__(self):
@@ -36,28 +35,24 @@ class DataGenerator(Sequence):
             raise StopIteration
         batch_indexes = self.indexes[self.index:self.index + self.batch_size]
         self.index += self.batch_size
-        return self.__getitem__(batch_indexes)
+        return self.__getitem__(batch_indexes[0] // self.batch_size)
 
     def __getitem__(self, index):
-        batch_image_paths = self.image_paths[index*self.batch_size:(index+1)*self.batch_size]
-        batch_mask_paths = self.mask_paths[index*self.batch_size:(index+1)*self.batch_size]
+        batch_image_paths = self.image_paths[index * self.batch_size:(index + 1) * self.batch_size]
+        batch_mask_paths = self.mask_paths[index * self.batch_size:(index + 1) * self.batch_size]
 
         images = []
         masks = []
         
         for img_path, mask_path in zip(batch_image_paths, batch_mask_paths):
             img = cv2.imread(img_path, 1)
-            #img = cv2.resize(img, self.image_size)
+            img = cv2.resize(img, self.image_size)  # Uncomment if resizing is needed
             
             mask = cv2.imread(mask_path, 1)
-            #mask = cv2.resize(mask, self.image_size, interpolation=cv2.INTER_NEAREST)
-            # Debugging: Check RGB values before encoding
-            #print("Unique RGB values in the mask before encoding:", np.unique(mask.reshape(-1, mask.shape[2]), axis=0))
+            mask = cv2.resize(mask, self.image_size, interpolation=cv2.INTER_NEAREST)  # Uncomment if resizing is needed
             
             # Label encoding the mask
             mask_encoded = self.label_encode_mask(mask)
-            # Debugging: Check the encoded values
-            #print("Unique values in the mask after encoding:", np.unique(mask_encoded))
             images.append(img)
             masks.append(mask_encoded)
 
@@ -77,18 +72,57 @@ class DataGenerator(Sequence):
         """
         h, w, c = mask.shape
         mask_encoded = np.zeros((h, w), dtype=np.uint8)
-    
-        # Set a tolerance for matching RGB values
-        tolerance = 10  # You can adjust this value
         
-        # Find the class index for each pixel
-        for i, rgb in enumerate(self.class_rgb_array):
-            # Calculate the absolute difference and check if it's within tolerance
-            mask_ = np.all(np.abs(mask - rgb) <= tolerance, axis=-1)
-            mask_encoded[mask_] = i
-    
+        # # Debug: Print unique RGB values in the raw mask
+        # unique_rgb = np.unique(mask.reshape(-1, mask.shape[2]), axis=0)
+        # print("Unique RGB values in mask:", unique_rgb)
+        
+        # Define class RGB values as a dictionary
+        class_rgb_values = {
+            (0, 0, 0): 0,      # Black (background)
+            (0, 255, 0): 1,    # Green
+            (0, 255, 255): 2,  # Cyan
+            (153, 146, 255): 3,# Purple
+            (64, 64, 128): 4,  # Dark Blue
+            (255, 255, 0): 5,  # Yellow
+            (255, 60, 255): 6, # Magenta
+            (255, 55, 55): 7   # Red
+        }
+        
+        # Step 1: Exact matching for background and green (high priority)
+        mask_encoded[np.all(mask == (0, 0, 0), axis=-1)] = 0  # Background
+        mask_encoded[np.all(mask == (0, 255, 0), axis=-1)] = 1  # Green
+        
+        # Step 2: Exact matching for other classes
+        for rgb, class_idx in class_rgb_values.items():
+            if rgb not in [(0, 0, 0), (0, 255, 0)]:  # Skip background and green
+                mask_encoded[np.all(mask == rgb, axis=-1)] = class_idx
+        
+        # Step 3: Tolerance-based matching for green and background if not found
+        if 0 not in np.unique(mask_encoded):
+            print("Background (class 0) not found, applying tolerance...")
+            mask_encoded[np.all(np.abs(mask - (0, 0, 0)) <= 5, axis=-1)] = 0
+        if 1 not in np.unique(mask_encoded):
+            print("Green (class 1) not found, applying tolerance...")
+            mask_encoded[np.all(np.abs(mask - (0, 255, 0)) <= 10, axis=-1)] = 1
+        
+        # Step 4: Tolerance-based matching for other classes
+        tolerance = 5
+        for rgb, class_idx in class_rgb_values.items():
+            if rgb not in [(0, 0, 0), (0, 255, 0)]:  # Skip background and green
+                mask_ = np.all(np.abs(mask - rgb) <= tolerance, axis=-1)
+                mask_encoded[mask_] = class_idx
+        
+        # # Debug: Print unique class labels and their counts
+        # unique_labels, counts = np.unique(mask_encoded, return_counts=True)
+        # print("Unique class labels after encoding:", dict(zip(unique_labels, counts)))
+        
+        # Warn if unexpected RGB values remain unclassified
+        unclassified_pixels = np.sum(mask_encoded == 0) - np.sum(np.all(mask == (0, 0, 0), axis=-1))
+        if unclassified_pixels > 0:
+            print(f"Warning: {unclassified_pixels} pixels not matched to any class (excluding background).")
+        
         return mask_encoded
-    
 
 # Define the class RGB values
 class_rgb_values = {
@@ -102,18 +136,19 @@ class_rgb_values = {
     7: (255, 55, 55)
 }
 
-class_rgb_array = np.array(list(class_rgb_values.values()), dtype=np.uint8)
+class_rgb_array = np.array([(0, 0, 0), (0, 255, 0), (0, 255, 255), (153, 146, 255), 
+                            (64, 64, 128), (255, 255, 0), (255, 60, 255), (255, 55, 55)], dtype=np.uint8)
 n_classes = len(class_rgb_values)
 
 # Get the list of image and mask file paths
-image_paths = glob.glob('/kaggle/input/breast-multimodal-merged-aug-set-1-2-3-resized-256/images/*png')
-mask_paths = glob.glob('/kaggle/input/multimodal-mrgd-1-3-rszd-256-pred-masks-mass-corr/multimodal_merged_1_3_resized_256_predicted_masks_mass_corrected/*png')
+image_paths = glob.glob('F:/Istiak/Dataset/Radiotherapy/Cervix_hdr_axial_flipped_mask/test/images/*png')
+mask_paths = glob.glob('F:/Istiak/Dataset/Radiotherapy/Cervix_hdr_axial_flipped_mask/test/masks/*png')
 
 # Sort the paths for matching image-mask pairs
 image_paths.sort()
 mask_paths.sort()
 
-# Split the dataset into training and testing sets (20% test size)
+# Split the dataset into training and testing sets (10% test size)
 train_image_paths, test_image_paths, train_mask_paths, test_mask_paths = train_test_split(
     image_paths, mask_paths, test_size=0.10, random_state=0)
 
@@ -121,60 +156,101 @@ train_image_paths, test_image_paths, train_mask_paths, test_mask_paths = train_t
 image_size = (256, 256)
 
 # Create the training and testing generators
-train_generator = DataGenerator(train_image_paths, train_mask_paths, batch_size=32, image_size=image_size, class_rgb_array=class_rgb_array, n_classes=n_classes)
-test_generator = DataGenerator(test_image_paths, test_mask_paths, batch_size=32, image_size=image_size, class_rgb_array=class_rgb_array, n_classes=n_classes)
+train_generator = DataGenerator(train_image_paths, train_mask_paths, batch_size=4, image_size=image_size, class_rgb_array=class_rgb_array, n_classes=n_classes)
+test_generator = DataGenerator(test_image_paths, test_mask_paths, batch_size=4, image_size=image_size, class_rgb_array=class_rgb_array, n_classes=n_classes)
 
 # Example usage to get a batch:
 train_images, train_masks = train_generator[0]
 print("Train batch image shape:", train_images.shape)
 print("Train batch mask shape:", train_masks.shape)
 train_images, train_masks = train_generator[0]
-print("Unique values in the mask (should be class labels 0-4):", np.unique(np.argmax(train_masks, axis=-1))) 
-
-
-
+print("Unique values in the mask (should be class labels 0-7):", np.unique(np.argmax(train_masks, axis=-1)))
 
 
 import random
 import matplotlib.pyplot as plt
+import cv2
 import numpy as np
 
-# Get a random batch index from the generator
-batch_index = random.randint(0, len(test_generator) - 1)
+# Set the number of images to visualize
+num_samples = 1  # Visualize 3 samples to check for green
 
-# Access the specific batch
-test_images, test_masks = test_generator[batch_index]
+# Get a batch from the train_generator
+train_images, train_masks = train_generator[0]
 
-# Choose a random index from the batch
-random_index = random.randint(0, test_images.shape[0] - 1)
+# Define class RGB values
+class_rgb_values = {
+    0: (0, 0, 0),      # Black (background)
+    1: (0, 255, 0),    # Green
+    2: (0, 255, 255),  # Cyan
+    3: (153, 146, 255),# Purple
+    4: (64, 64, 128),  # Dark Blue
+    5: (255, 255, 0),  # Yellow
+    6: (255, 60, 255), # Magenta
+    7: (255, 55, 55)   # Red
+}
 
-# Extract the randomly chosen image and corresponding mask
-test_img = test_images[random_index]
-ground_truth = test_masks[random_index]
+# Function to convert class labels to RGB mask
+def label_to_rgb(mask, class_rgb_values):
+    h, w = mask.shape
+    rgb_mask = np.zeros((h, w, 3), dtype=np.uint8)
+    for label, color in class_rgb_values.items():
+        rgb_mask[mask == label] = color
+    return rgb_mask
 
-# Check the shape of the mask before one-hot encoding
-print("Ground truth mask shape (after generator but before one-hot encoding):", ground_truth.shape)
-print("Unique values in the mask (should be class labels):", np.unique(np.argmax(ground_truth, axis=-1)))
+# Create a figure for multiple samples
+plt.figure(figsize=(15, 5 * num_samples))
 
-# Plotting
-plt.figure(figsize=(16, 12))
+for i in range(num_samples):
+    # Select a random index from the batch
+    random_idx = random.choice(range(len(train_images)))
 
-# Plot the original image
-plt.subplot(231)
-plt.title('Original Image')
-plt.imshow(test_img)  # Display the color image (RGB)
+    # Retrieve the selected image and mask
+    image = train_images[random_idx]  # Normalized image (float32, [0, 1])
+    mask = train_masks[random_idx]    # One-hot encoded mask (H, W, n_classes)
 
-# Plot the labeled mask (ground truth)
-plt.subplot(232)
-plt.title('Labeled Mask')
+    # Debug: Print image and mask info
+    print(f"Sample {i+1} - Image shape:", image.shape, "min/max:", image.min(), image.max())
+    print(f"Sample {i+1} - Mask shape:", mask.shape)
 
-# Convert one-hot encoded mask back to class labels
-mask_classes = np.argmax(ground_truth, axis=-1)
-plt.imshow(mask_classes, cmap='cividis')
+    # Denormalize the image for visualization
+    image_uint8 = (image * 255).astype(np.uint8)
 
-plt.show()
+    # Convert BGR to RGB for the image
+    image_rgb = cv2.cvtColor(image_uint8, cv2.COLOR_BGR2RGB)
 
+    # Convert one-hot encoded mask to class labels
+    mask_labels = np.argmax(mask, axis=-1).astype(np.uint8)  # Shape: (H, W)
+    unique_labels, counts = np.unique(mask_labels, return_counts=True)
+    print(f"Sample {i+1} - Unique class labels in mask:", dict(zip(unique_labels, counts)))
 
+    # Convert mask to RGB
+    mask_rgb = label_to_rgb(mask_labels, class_rgb_values)
+    print(f"Sample {i+1} - Unique RGB values in mask_rgb:", np.unique(mask_rgb.reshape(-1, mask_rgb.shape[2]), axis=0))
+
+    # Overlay with transparency
+    overlay = cv2.addWeighted(image_rgb, 0.7, mask_rgb, 0.3, 0)
+
+    # Plot images
+    # Original Image
+    plt.subplot(num_samples, 3, i * 3 + 1)
+    plt.imshow(image_rgb)
+    plt.title(f"Sample {i+1} - Original Image")
+    plt.axis("off")
+
+    # Mask
+    plt.subplot(num_samples, 3, i * 3 + 2)
+    plt.imshow(mask_rgb)
+    plt.title(f"Sample {i+1} - Mask")
+    plt.axis("off")
+
+    # Overlayed Image
+    plt.subplot(num_samples, 3, i * 3 + 3)
+    plt.imshow(overlay)
+    plt.title(f"Sample {i+1} - Overlayed Image")
+    plt.axis("off")
+
+plt.tight_layout()
 
 
 
