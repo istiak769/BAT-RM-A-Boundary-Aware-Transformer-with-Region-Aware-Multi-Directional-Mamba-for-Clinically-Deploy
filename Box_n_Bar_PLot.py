@@ -1,1429 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-Created on Thu Apr 30 14:51:36 2026
+Created on Mon May 11 09:02:24 2026
 
 @author: User
 """
-
-#----------- Box plots of 3 axis of Different models' segmentation scores for LUNG RADIOTHERAPY--------------------------
-
-import pandas as pd
-import seaborn as sns
-import matplotlib.pyplot as plt
-from matplotlib.lines import Line2D
-import numpy as np
-import os
-from scipy.stats import wilcoxon
-import string
-
-# ========================================================================
-# CONFIGURATION SECTION - MODIFY ALL PARAMETERS HERE
-# ========================================================================
-
-# --------------------- MODEL NAME MAPPING (USE EXACT NAMES HERE) ---------------------
-MODEL_NAME_MAP = {
-    'Axial': {
-        0: 'UNet3+',
-        1: 'UNet++',
-        2: 'UNet',
-        3: 'TransUNet',
-        4: 'UNETR'
-    },
-    'Coronal': {
-        0: 'UNet3+',
-        1: 'UNet++',
-        2: 'UNet',
-        3: 'TransUNet',
-        4: 'UNETR'
-    },
-    'Sagittal': {
-        0: 'UNet3+',
-        1: 'UNet++',
-        2: 'UNet',
-        3: 'TransUNet',
-        4: 'UNETR'
-    }
-}
-
-# --------------------- AXES CONFIGURATION - UPDATE FOR LUNG ---------------------
-AXES_CONFIG = [
-    {
-        'name': 'Axial',
-        'model_paths': [
-            r'I:/Radiotherapy/lung/Result/segmentation/Unet3+_Lung_Axial_segmentation_metrics_detailed.xlsx',
-            r'I:/Radiotherapy/lung/Result/segmentation/Unet3+_Lung_Axial_segmentation_metrics_detailed.xlsx',
-            r'I:/Radiotherapy/lung/Result/segmentation/Unet3+_Lung_Axial_segmentation_metrics_detailed.xlsx',
-            r'I:/Radiotherapy/lung/Result/segmentation/Unet3+_Lung_Axial_segmentation_metrics_detailed.xlsx',
-            r'I:/Radiotherapy/lung/Result/segmentation/Unet3+_Lung_Axial_segmentation_metrics_detailed.xlsx'
-        ]
-    },
-    {
-        'name': 'Coronal',
-        'model_paths': [
-            r'I:/Radiotherapy/lung/Result/segmentation/Unet3+_Lung_Axial_segmentation_metrics_detailed.xlsx',
-            r'I:/Radiotherapy/lung/Result/segmentation/Unet3+_Lung_Axial_segmentation_metrics_detailed.xlsx',
-            r'I:/Radiotherapy/lung/Result/segmentation/Unet3+_Lung_Axial_segmentation_metrics_detailed.xlsx',
-            r'I:/Radiotherapy/lung/Result/segmentation/Unet3+_Lung_Axial_segmentation_metrics_detailed.xlsx',
-            r'I:/Radiotherapy/lung/Result/segmentation/Unet3+_Lung_Axial_segmentation_metrics_detailed.xlsx'
-        ]
-    },
-    {
-        'name': 'Sagittal',
-        'model_paths': [
-            r'I:/Radiotherapy/lung/Result/segmentation/Unet3+_Lung_Axial_segmentation_metrics_detailed.xlsx',
-            r'I:/Radiotherapy/lung/Result/segmentation/Unet3+_Lung_Axial_segmentation_metrics_detailed.xlsx',
-            r'I:/Radiotherapy/lung/Result/segmentation/Unet3+_Lung_Axial_segmentation_metrics_detailed.xlsx',
-            r'I:/Radiotherapy/lung/Result/segmentation/Unet3+_Lung_Axial_segmentation_metrics_detailed.xlsx',
-            r'I:/Radiotherapy/lung/Result/segmentation/Unet3+_Lung_Axial_segmentation_metrics_detailed.xlsx'
-        ]
-    }
-]
-
-# --------------------- METRIC SELECTION ---------------------
-METRICS_TO_PLOT = 'iou'  # Options: 'both', 'iou', 'dice'
-
-# --------------------- OUTPUT DIRECTORY ---------------------
-output_dir = r'I:/Radiotherapy/lung/Result/segmentation/combined'
-
-# --------------------- LUNG CLASS ORDER (Updated for Lung Radiotherapy) ---------------------
-# Based on your data: Background(0), SPINAL CORD(1), LUNGS_RT(4), LUNGS_LT(5), BODY(7), CTV(9), GTV(8)
-# Note: Class 0 (Background) is excluded from plots
-class_order = ['BODY', 'LUNGS_RT', 'LUNGS_LT', 'SPINAL CORD', 'Esophagus', 'HEART', 'TRACHEA', 'CTV', 'GTV']
-
-# --------------------- FIGURE DIMENSIONS (NATURE STYLE) ---------------------
-FIG_WIDTH_MM = 180
-FIG_HEIGHT_MM = 200
-DPI = 300
-
-# --------------------- FONT CONFIGURATION (NATURE STYLE) ---------------------
-FONT_CONFIG = {
-    'family': 'Arial',
-    'title_size': 7,
-    'title_weight': 'bold',
-    'axis_label_size': 6,
-    'axis_label_weight': 'normal',
-    'tick_label_size': 5,
-    'legend_fontsize': 5,
-    'legend_title_size': 6,
-    'n_label_fontsize': 5,
-    'n_label_weight': 'normal',
-    'star_fontsize': 7,
-    'star_fontsize_ns': 5,
-    'subplot_label_size': 8,
-    'subplot_label_weight': 'bold'
-}
-
-plt.rcParams['font.family'] = FONT_CONFIG['family']
-plt.rcParams['font.size'] = 6
-plt.rcParams['pdf.fonttype'] = 42
-plt.rcParams['ps.fonttype'] = 42
-
-# --------------------- BOX PLOT STYLING ---------------------
-BOX_CONFIG = {
-    'width': 0.7,
-    'linewidth': 0.6,
-    'showfliers': False,
-    'showmeans': True,
-}
-
-MEAN_PROPS = {
-    'marker': 'D',
-    'markerfacecolor': 'white',
-    'markeredgecolor': 'darkred',
-    'markersize': 1.8,
-    'markeredgewidth': 0.4,
-    'zorder': 10,
-}
-
-MEDIAN_PROPS = {
-    'color': '#2C3E50',
-    'linewidth': 0.7,
-}
-
-# --------------------- STRIP PLOT ---------------------
-STRIP_CONFIG = {
-    'size': 1.0,
-    'alpha': 0.15,
-    'color': 'dimgray',
-    'jitter': True,
-    'zorder': 1,
-}
-
-# --------------------- GLOBAL METRIC LINES ---------------------
-GLOBAL_LINE_CONFIG = {
-    'linewidth': 0.5,
-    'alpha': 0.7,
-    'cap_width': 0.08,
-}
-
-BASE_IOU_LINE_COLORS = ['#D55E00']
-BASE_IOU_LINE_STYLES = ['--']
-BASE_DICE_LINE_COLORS = ['#0072B2']
-BASE_DICE_LINE_STYLES = ['--']
-
-# --------------------- COLOR PALETTE ---------------------
-BASE_COLOR_PALETTES = {
-    'iou_only': ['#0072B2', '#56B4E9', '#009E73', '#F0E442', '#CC79A7', '#E69F00'],
-    'dice_only': ['#D55E00', '#CC79A7', '#E69F00', '#999999', '#0072B2', '#56B4E9'],
-    'both': [
-        '#0072B2', '#56B4E9', '#009E73', '#F0E442', '#CC79A7', '#E69F00',
-        '#D55E00', '#CC79A7', '#E69F00', '#999999', '#0072B2', '#56B4E9',
-    ]
-}
-
-# --------------------- ANNOTATIONS ---------------------
-N_LABEL_CONFIG = {
-    'show': True,
-    'y_position': 1.08,
-    'show_box': False,
-}
-
-STARS_CONFIG = {
-    'y_offset_start': 1.015,
-    'y_offset_increment': 0.02,
-    'ns_color': 'dimgray',
-    'sig_color': 'black',
-}
-
-# --------------------- AXIS & LAYOUT ---------------------
-AXIS_CONFIG = {
-    'ylim': (0, 1.18),
-    'spine_width': 0.5,
-    'tick_width': 0.4,
-    'x_rotation': 35,
-    'x_ha': 'right',
-}
-
-LEGEND_CONFIG = {
-    'location': 'lower right',
-    'ncol': 3,
-    'framealpha': 0.95,
-    'edgecolor': 'lightgray',
-    'fancybox': False,
-    'columnspacing': 0.6,
-    'handletextpad': 0.4,
-    'markerscale': 1.0,
-}
-
-# --------------------- STATISTICAL TESTS ---------------------
-STATS_CONFIG = {
-    'base_model_index': 0,
-    'paired_test': True,
-    'min_samples': 4,
-    'p_value_thresholds': {
-        '***': 0.001,
-        '**': 0.01,
-        '*': 0.05,
-    },
-    'effect_size_thresholds': {
-        'small': 0.2,
-        'medium': 0.5,
-        'large': 0.8,
-    }
-}
-
-# ========================================================================
-# VALIDATE AND SETUP
-# ========================================================================
-
-METRICS_TO_PLOT = METRICS_TO_PLOT.lower()
-if METRICS_TO_PLOT not in ['both', 'iou', 'dice']:
-    raise ValueError("METRICS_TO_PLOT must be 'both', 'iou', or 'dice'")
-
-if METRICS_TO_PLOT == 'both':
-    ACTIVE_METRICS = ['iou', 'dice']
-    METRIC_DISPLAY = ['IoU', 'Dice']
-    palette_key = 'both'
-elif METRICS_TO_PLOT == 'iou':
-    ACTIVE_METRICS = ['iou']
-    METRIC_DISPLAY = ['IoU']
-    palette_key = 'iou_only'
-else:
-    ACTIVE_METRICS = ['dice']
-    METRIC_DISPLAY = ['Dice']
-    palette_key = 'dice_only'
-
-os.makedirs(output_dir, exist_ok=True)
-
-print(f"📊 Creating {len(AXES_CONFIG)}-panel figure")
-print(f"📊 Plotting metrics: {', '.join(METRIC_DISPLAY)}")
-print(f"📊 Lung Classes: {', '.join(class_order)}")
-
-# ========================================================================
-# HELPER FUNCTIONS (Updated for Lung)
-# ========================================================================
-
-def load_metrics_with_filename(csv_path, model_name):
-    """Load metrics and standardize column names for Lung dataset"""
-    df = pd.read_excel(csv_path)
-    df.columns = df.columns.str.strip()
-    
-    # Standardize column names
-    rename_map = {
-        'IoU': 'iou', 
-        'Dice': 'dice', 
-        'Filename': 'filename',
-        'Class_Name': 'class_name'
-    }
-    df.rename(columns=rename_map, inplace=True)
-    
-    # Handle filename column
-    if 'filename' in df.columns:
-        pass
-    elif 'image_id' in df.columns:
-        df['filename'] = df['image_id'].apply(lambda x: f'image_{x}.png')
-    else:
-        # Check if there's a column with R numbers
-        for col in df.columns:
-            if df[col].astype(str).str.startswith('R').any():
-                df['filename'] = df[col]
-                break
-        else:
-            df['filename'] = [f'img_{i}.png' for i in range(len(df))]
-    
-    # Filter out background class (Class_ID 0)
-    if 'Class_ID' in df.columns:
-        df = df[df['Class_ID'] != 0].copy()
-    
-    # Standardize class names
-    if 'class_name' not in df.columns and 'Class_Name' in df.columns:
-        df['class_name'] = df['Class_Name']
-    
-    # Map any variations in class names
-    class_name_mapping = {
-        'LUNGS_RT': 'LUNGS_RT',
-        'LUNGS_LT': 'LUNGS_LT',
-        'SPINAL CORD': 'SPINAL CORD',
-        'BODY': 'BODY',
-        'GTV': 'GTV',
-        'CTV': 'CTV'
-    }
-    
-    if 'class_name' in df.columns:
-        df['class_name'] = df['class_name'].map(lambda x: class_name_mapping.get(x, x))
-    
-    df['Model'] = model_name
-    
-    # Ensure only the classes in class_order are included
-    df = df[df['class_name'].isin(class_order)].copy()
-    
-    # Convert to categorical with the specified order
-    df['class_name'] = pd.Categorical(df['class_name'], categories=class_order, ordered=True)
-    
-    return df[['filename', 'class_name', 'iou', 'dice', 'Model']].copy()
-
-
-def compute_global_metrics(raw_csv_path):
-    """Compute global IoU and Dice from intersection/union data for Lung"""
-    df_raw = pd.read_excel(raw_csv_path)
-    df_raw.columns = df_raw.columns.str.strip()
-    
-    # Filter out background (Class_ID 0) and only include classes in class_order
-    df_raw = df_raw[df_raw['Class_ID'] != 0].copy()
-    
-    # Standardize class names if needed
-    class_name_mapping = {
-        'LUNGS_RT': 'LUNGS_RT',
-        'LUNGS_LT': 'LUNGS_LT',
-        'SPINAL CORD': 'SPINAL CORD',
-        'BODY': 'BODY',
-        'GTV': 'GTV',
-        'CTV': 'CTV'
-    }
-    
-    if 'Class_Name' in df_raw.columns:
-        df_raw['Class_Name'] = df_raw['Class_Name'].map(lambda x: class_name_mapping.get(x, x))
-    
-    # Filter to only include our classes of interest
-    df_raw = df_raw[df_raw['Class_Name'].isin(class_order)].copy()
-    
-    global_iou = {}
-    global_dice = {}
-    
-    for cls in class_order:
-        d = df_raw[df_raw['Class_Name'] == cls]
-        if len(d) > 0:
-            inter = d['Intersection'].sum()
-            union = d['Union'].sum()
-            global_iou[cls] = inter / union if union > 0 else 0.0
-            global_dice[cls] = (2 * inter) / (inter + union) if (inter + union) > 0 else 0.0
-        else:
-            global_iou[cls] = 0.0
-            global_dice[cls] = 0.0
-    
-    return global_iou, global_dice
-
-
-def interpret_effect_size(d_value):
-    """Interpret Cohen's d magnitude"""
-    abs_d = abs(d_value)
-    thresholds = STATS_CONFIG['effect_size_thresholds']
-    
-    if np.isnan(abs_d):
-        return 'undefined'
-    elif abs_d < thresholds['small']:
-        return 'negligible'
-    elif abs_d < thresholds['medium']:
-        return 'small'
-    elif abs_d < thresholds['large']:
-        return 'medium'
-    else:
-        return 'large'
-
-
-def compute_statistics_pairwise(all_dfs, model_names, base_idx):
-    """
-    Statistical calculations for Lung dataset
-    """
-    p_values = {}
-    n_per_class = {}
-    cohens_d_values = {}
-    mean_differences = {}
-    sample_sizes = {}
-    
-    for cls in class_order:
-        n_counts = [len(df[df['class_name'] == cls]) for df in all_dfs]
-        n_per_class[cls] = n_counts
-        
-        for metric in ACTIVE_METRICS:
-            base_data = all_dfs[base_idx][all_dfs[base_idx]['class_name'] == cls][['filename', metric]].set_index('filename').sort_index()
-            
-            for i in range(len(model_names)):
-                if i == base_idx:
-                    continue
-                
-                comp_data = all_dfs[i][all_dfs[i]['class_name'] == cls][['filename', metric]].set_index('filename').sort_index()
-                
-                # Proper pairing: Only samples in BOTH datasets
-                paired = base_data.join(comp_data, lsuffix='_base', rsuffix=f'_{i}', how='inner')
-                
-                key = (cls, metric, i)
-                paired_n = len(paired)
-                sample_sizes[key] = paired_n
-                
-                if paired_n < STATS_CONFIG['min_samples']:
-                    p_values[key] = 1.0
-                    cohens_d_values[key] = np.nan
-                    mean_differences[key] = np.nan
-                else:
-                    x = paired[f'{metric}_base'].values
-                    y = paired[f'{metric}_{i}'].values
-                    diff = x - y
-                    
-                    # Mean difference
-                    mean_diff = np.mean(diff)
-                    mean_differences[key] = mean_diff
-                    
-                    # Wilcoxon test: Compare differences to zero
-                    nonzero_diff = diff[diff != 0]
-                    
-                    if len(nonzero_diff) == 0:
-                        p_val = 1.0
-                    else:
-                        try:
-                            stat, p_val = wilcoxon(nonzero_diff, alternative='two-sided')
-                        except Exception as e:
-                            print(f"⚠️ Warning: Wilcoxon test failed for {cls}, {metric}, {model_names[base_idx]} vs {model_names[i]}: {e}")
-                            p_val = 1.0
-                    
-                    p_values[key] = round(p_val, 6)
-                    
-                    # Cohen's D (Paired): Standard deviation of differences
-                    std_diff = np.std(diff, ddof=1)
-                    if std_diff > 0:
-                        cohens_d = mean_diff / std_diff
-                    else:
-                        cohens_d = 0.0 if abs(mean_diff) < 1e-10 else np.inf
-                    
-                    cohens_d_values[key] = round(cohens_d, 4)
-    
-    return p_values, n_per_class, cohens_d_values, mean_differences, sample_sizes
-
-
-def create_subplot(ax, combined_melted, hue_order, palette, all_global_iou, all_global_dice, 
-                   p_values, n_per_class, model_names, base_idx, axis_name):
-    """Create a single subplot with all visualizations"""
-    
-    NUM_MODELS = len(model_names)
-    
-    # Custom palette
-    custom_palette = {hue_order[i]: palette[i] for i in range(len(hue_order))}
-    
-    # Box plot
-    sns.boxplot(
-        data=combined_melted, x='class_name', y='Score', hue='Metric_Model',
-        palette=custom_palette, ax=ax, hue_order=hue_order,
-        meanprops=MEAN_PROPS, medianprops=MEDIAN_PROPS, **BOX_CONFIG
-    )
-    
-    # Strip plot
-    sns.stripplot(
-        data=combined_melted, x='class_name', y='Score', hue='Metric_Model',
-        palette=[STRIP_CONFIG['color']] * len(hue_order),
-        size=STRIP_CONFIG['size'], alpha=STRIP_CONFIG['alpha'],
-        jitter=STRIP_CONFIG['jitter'], dodge=True, legend=False,
-        ax=ax, hue_order=hue_order
-    )
-    
-    # Global metric lines
-    x_positions = np.arange(len(class_order))
-    n_boxes = NUM_MODELS * len(ACTIVE_METRICS)
-    box_width = BOX_CONFIG['width'] / n_boxes
-    start_offset = -BOX_CONFIG['width'] / 2 + box_width / 2
-    
-    for i, cls in enumerate(class_order):
-        box_idx = 0
-        for metric_idx, metric in enumerate(ACTIVE_METRICS):
-            for m_idx in range(NUM_MODELS):
-                offset = start_offset + box_idx * box_width
-                
-                if metric == 'iou':
-                    ax.hlines(
-                        all_global_iou[m_idx][cls],
-                        i + offset - GLOBAL_LINE_CONFIG['cap_width'],
-                        i + offset + GLOBAL_LINE_CONFIG['cap_width'],
-                        colors=BASE_IOU_LINE_COLORS[0],
-                        linestyles=BASE_IOU_LINE_STYLES[0],
-                        linewidth=GLOBAL_LINE_CONFIG['linewidth'],
-                        alpha=GLOBAL_LINE_CONFIG['alpha']
-                    )
-                else:
-                    ax.hlines(
-                        all_global_dice[m_idx][cls],
-                        i + offset - GLOBAL_LINE_CONFIG['cap_width'],
-                        i + offset + GLOBAL_LINE_CONFIG['cap_width'],
-                        colors=BASE_DICE_LINE_COLORS[0],
-                        linestyles=BASE_DICE_LINE_STYLES[0],
-                        linewidth=GLOBAL_LINE_CONFIG['linewidth'],
-                        alpha=GLOBAL_LINE_CONFIG['alpha']
-                    )
-                
-                box_idx += 1
-    
-    # Add n labels
-    y_max_n = N_LABEL_CONFIG['y_position']
-    
-    for i, cls in enumerate(class_order):
-        if N_LABEL_CONFIG['show']:
-            n_value = max(n_per_class[cls])
-            ax.text(
-                i, y_max_n, f'n={n_value}',
-                ha='center', va='bottom',
-                fontsize=FONT_CONFIG['n_label_fontsize'],
-                weight=FONT_CONFIG['n_label_weight'],
-                color='black'
-            )
-    
-    # Add significance stars
-    thresholds = STATS_CONFIG['p_value_thresholds']
-    
-    for i, cls in enumerate(class_order):
-        for metric_idx, metric in enumerate(ACTIVE_METRICS):
-            for m_idx in range(NUM_MODELS):
-                if m_idx == base_idx:
-                    continue
-                
-                key = (cls, metric, m_idx)
-                p_val = p_values.get(key, 1.0)
-                
-                # Determine stars
-                if p_val < thresholds['***']:
-                    stars = '***'
-                elif p_val < thresholds['**']:
-                    stars = '**'
-                elif p_val < thresholds['*']:
-                    stars = '*'
-                else:
-                    stars = 'ns'
-                
-                # Calculate position
-                box_idx = metric_idx * NUM_MODELS + m_idx
-                offset = start_offset + box_idx * box_width
-                
-                y_star = STARS_CONFIG['y_offset_start']
-                
-                fontsize_star = FONT_CONFIG['star_fontsize_ns']
-                star_color = STARS_CONFIG['sig_color'] if stars != 'ns' else STARS_CONFIG['ns_color']
-                
-                ax.text(
-                    i + offset, y_star, stars,
-                    ha='center', va='bottom',
-                    fontsize=fontsize_star,
-                    weight='bold',
-                    color=star_color
-                )
-    
-    # Styling
-    ax.set_ylim(*AXIS_CONFIG['ylim'])
-    ax.set_xlabel('Class', fontsize=FONT_CONFIG['axis_label_size'], 
-                  weight=FONT_CONFIG['axis_label_weight'])
-    ax.set_ylabel('Score', fontsize=FONT_CONFIG['axis_label_size'], 
-                  weight=FONT_CONFIG['axis_label_weight'])
-    ax.tick_params(axis='both', labelsize=FONT_CONFIG['tick_label_size'], 
-                   width=AXIS_CONFIG['tick_width'])
-    plt.setp(ax.xaxis.get_majorticklabels(), rotation=AXIS_CONFIG['x_rotation'], 
-             ha=AXIS_CONFIG['x_ha'])
-    
-    for spine in ax.spines.values():
-        spine.set_linewidth(AXIS_CONFIG['spine_width'])
-    
-    # Remove legend from individual subplots
-    ax.get_legend().remove()
-    
-    return ax
-
-
-# ========================================================================
-# MAIN PROCESSING LOOP
-# ========================================================================
-
-fig_width_inches = FIG_WIDTH_MM / 25.4
-fig_height_inches = FIG_HEIGHT_MM / 25.4
-
-fig, axes = plt.subplots(len(AXES_CONFIG), 1, figsize=(fig_width_inches, fig_height_inches))
-
-if len(AXES_CONFIG) == 1:
-    axes = [axes]
-
-all_stats_dfs = []
-
-for idx, axis_config in enumerate(AXES_CONFIG):
-    axis_name = axis_config['name']
-    model_paths = axis_config['model_paths']
-    
-    NUM_MODELS = len(model_paths)
-    MODEL_NAMES = [MODEL_NAME_MAP[axis_name][i] for i in range(NUM_MODELS)]
-    BASE_MODEL_NAME = MODEL_NAMES[STATS_CONFIG['base_model_index']]
-    
-    print(f"\n{'='*70}")
-    print(f"Processing: {axis_name} Plane")
-    print(f"Models: {MODEL_NAMES}")
-    print(f"Base model (for comparisons): {BASE_MODEL_NAME}")
-    print(f"{'='*70}")
-    
-    # Load data
-    all_dfs = []
-    for i, path in enumerate(model_paths):
-        df = load_metrics_with_filename(path, MODEL_NAMES[i])
-        all_dfs.append(df)
-    
-    # Compute global metrics
-    all_global_iou = []
-    all_global_dice = []
-    for path in model_paths:
-        g_iou, g_dice = compute_global_metrics(path)
-        all_global_iou.append(g_iou)
-        all_global_dice.append(g_dice)
-    
-    # Compute statistics
-    p_values, n_per_class, cohens_d_values, mean_differences, sample_sizes = compute_statistics_pairwise(
-        all_dfs, MODEL_NAMES, STATS_CONFIG['base_model_index']
-    )
-    
-    # Print detailed statistics for verification
-    print(f"\n🔍 DETAILED STATISTICAL VERIFICATION for {axis_name}:")
-    print(f"{'Class':<15} {'Metric':<8} {'Comparison':<30} {'N':<5} {'Mean_Diff':<12} {'Cohen_d':<10} {'p_value':<10} {'Sig'}")
-    print("-" * 110)
-    
-    for cls in class_order:
-        for metric in ACTIVE_METRICS:
-            for m_idx in range(NUM_MODELS):
-                if m_idx == STATS_CONFIG['base_model_index']:
-                    continue
-                
-                key = (cls, metric, m_idx)
-                p_val = p_values.get(key, 1.0)
-                cohens = cohens_d_values.get(key, np.nan)
-                mean_diff = mean_differences.get(key, np.nan)
-                paired_n = sample_sizes.get(key, 0)
-                
-                if p_val < STATS_CONFIG['p_value_thresholds']['***']:
-                    sig = '***'
-                elif p_val < STATS_CONFIG['p_value_thresholds']['**']:
-                    sig = '**'
-                elif p_val < STATS_CONFIG['p_value_thresholds']['*']:
-                    sig = '*'
-                else:
-                    sig = 'ns'
-                
-                comparison_name = f"{BASE_MODEL_NAME} vs {MODEL_NAMES[m_idx]}"
-                print(f"{cls:<15} {metric.upper():<8} {comparison_name:<30} {paired_n:<5} {mean_diff:>11.4f} {cohens:>9.4f} {p_val:>9.6f} {sig:>3}")
-    
-    # Create CSV with COLUMNS in the format: UNet3+_vs_ModelName_metric
-    pivot_rows = []
-    
-    for cls in class_order:
-        for metric in ACTIVE_METRICS:
-            row_data = {
-                'Axis': axis_name,
-                'Class': cls,
-                'Metric': metric.upper(),
-                'Sample_Size': max(n_per_class[cls])
-            }
-            
-            # Add columns for each model comparison
-            for m_idx in range(NUM_MODELS):
-                if m_idx == STATS_CONFIG['base_model_index']:
-                    continue
-                
-                key = (cls, metric, m_idx)
-                p_val = p_values.get(key, 1.0)
-                cohens = cohens_d_values.get(key, np.nan)
-                mean_diff = mean_differences.get(key, np.nan)
-                paired_n = sample_sizes.get(key, 0)
-                
-                # Significance
-                if p_val < STATS_CONFIG['p_value_thresholds']['***']:
-                    sig = '***'
-                elif p_val < STATS_CONFIG['p_value_thresholds']['**']:
-                    sig = '**'
-                elif p_val < STATS_CONFIG['p_value_thresholds']['*']:
-                    sig = '*'
-                else:
-                    sig = 'ns'
-                
-                # Format: UNet3+_vs_ModelName_metric
-                comparison_prefix = f"{BASE_MODEL_NAME}_vs_{MODEL_NAMES[m_idx]}"
-                
-                row_data[f'{comparison_prefix}_n_paired'] = paired_n
-                row_data[f'{comparison_prefix}_mean_diff'] = round(mean_diff, 4)
-                row_data[f'{comparison_prefix}_cohens_d'] = round(cohens, 4)
-                row_data[f'{comparison_prefix}_effect_size'] = interpret_effect_size(cohens)
-                row_data[f'{comparison_prefix}_p_value'] = p_val
-                row_data[f'{comparison_prefix}_significance'] = sig
-            
-            # Add Min_p_value
-            all_p_vals = []
-            for m_idx in range(NUM_MODELS):
-                if m_idx != STATS_CONFIG['base_model_index']:
-                    key = (cls, metric, m_idx)
-                    all_p_vals.append(p_values.get(key, 1.0))
-            row_data['Min_p_value'] = min(all_p_vals) if all_p_vals else 1.0
-            
-            pivot_rows.append(row_data)
-    
-    stats_df = pd.DataFrame(pivot_rows)
-    all_stats_dfs.append(stats_df)
-    
-    # Prepare data for plotting
-    combined = pd.concat(all_dfs, ignore_index=True)
-    combined_melted = combined.melt(
-        id_vars=['filename', 'class_name', 'Model'],
-        value_vars=ACTIVE_METRICS,
-        var_name='Metric',
-        value_name='Score'
-    )
-    combined_melted['Metric'] = combined_melted['Metric'].map({'iou': 'IoU', 'dice': 'Dice'})
-    combined_melted['Metric_Model'] = combined_melted['Metric'] + ' - ' + combined_melted['Model']
-    
-    hue_order = []
-    for metric in METRIC_DISPLAY:
-        for model_name in MODEL_NAMES:
-            hue_order.append(f'{metric} - {model_name}')
-    
-    combined_melted['class_name'] = pd.Categorical(
-        combined_melted['class_name'], categories=class_order, ordered=True
-    )
-    
-    # Get palette
-    n_colors_needed = NUM_MODELS * len(ACTIVE_METRICS)
-    palette = BASE_COLOR_PALETTES[palette_key][:n_colors_needed]
-    
-    # Create subplot
-    ax = axes[idx]
-    create_subplot(
-        ax, combined_melted, hue_order, palette, all_global_iou, all_global_dice,
-        p_values, n_per_class, MODEL_NAMES, STATS_CONFIG['base_model_index'], axis_name
-    )
-    
-    # Add subplot label
-    subplot_label = string.ascii_lowercase[idx]
-    ax.text(
-        -0.08, 1.05, f'{subplot_label}',
-        transform=ax.transAxes,
-        fontsize=FONT_CONFIG['subplot_label_size'],
-        weight=FONT_CONFIG['subplot_label_weight'],
-        va='top', ha='right'
-    )
-    
-    # Add axis name as title
-    ax.set_title(
-        f'{axis_name} Plane',
-        fontsize=FONT_CONFIG['title_size'],
-        weight=FONT_CONFIG['title_weight'],
-        pad=8
-    )
-
-# ========================================================================
-# CREATE SHARED LEGEND
-# ========================================================================
-
-legend_elements = []
-
-for idx_leg, label in enumerate(hue_order):
-    legend_elements.append(
-        Line2D([0], [0], marker='s', color='w',
-               markerfacecolor=palette[idx_leg],
-               markersize=4,
-               markeredgecolor='black',
-               markeredgewidth=0.3,
-               label=label)
-    )
-
-legend_elements.extend([
-    Line2D([0], [0], marker=MEAN_PROPS['marker'], color='w',
-           markerfacecolor=MEAN_PROPS['markerfacecolor'],
-           markeredgecolor='darkred',
-           markersize=3,
-           markeredgewidth=0.3,
-           label='Mean'),
-    Line2D([0], [0], color=MEDIAN_PROPS['color'],
-           linewidth=1.2,
-           label='Median'),
-])
-
-if 'iou' in ACTIVE_METRICS:
-    legend_elements.append(
-        Line2D([0], [0], color=BASE_IOU_LINE_COLORS[0],
-               linestyle=BASE_IOU_LINE_STYLES[0],
-               linewidth=1.5,
-               label='Global IoU')
-    )
-
-if 'dice' in ACTIVE_METRICS:
-    legend_elements.append(
-        Line2D([0], [0], color=BASE_DICE_LINE_COLORS[0],
-               linestyle=BASE_DICE_LINE_STYLES[0],
-               linewidth=1.5,
-               label='Global Dice')
-    )
-
-legend_elements.append(
-    Line2D([0], [0], marker='o', color='w',
-           markerfacecolor=STRIP_CONFIG['color'],
-           markeredgecolor=STRIP_CONFIG['color'],
-           markersize=2,
-           alpha=STRIP_CONFIG['alpha'],
-           label='Individual Sample')
-)
-
-axes[-1].legend(
-    handles=legend_elements,
-    title='Elements',
-    title_fontsize=FONT_CONFIG['legend_title_size'],
-    loc=LEGEND_CONFIG['location'],
-    fontsize=FONT_CONFIG['legend_fontsize'],
-    ncol=LEGEND_CONFIG['ncol'],
-    framealpha=LEGEND_CONFIG['framealpha'],
-    edgecolor=LEGEND_CONFIG['edgecolor'],
-    fancybox=LEGEND_CONFIG['fancybox'],
-    columnspacing=LEGEND_CONFIG['columnspacing'],
-    handletextpad=LEGEND_CONFIG['handletextpad'],
-    markerscale=LEGEND_CONFIG['markerscale']
-)
-
-plt.tight_layout()
-
-# ========================================================================
-# SAVE OUTPUTS
-# ========================================================================
-
-# Save combined statistics
-combined_stats = pd.concat(all_stats_dfs, ignore_index=True)
-stats_path = os.path.join(output_dir, f'combined_statistics_{METRICS_TO_PLOT}.csv')
-combined_stats.to_csv(stats_path, index=False)
-
-print(f"\n✅ Saved combined statistics to: {stats_path}")
-
-# Print summary
-print(f"\n{'='*70}")
-print(f"📊 OVERALL STATISTICAL SUMMARY")
-print(f"{'='*70}")
-for axis_name in combined_stats['Axis'].unique():
-    axis_data = combined_stats[combined_stats['Axis'] == axis_name]
-    # Count columns with 'Significance' to get number of comparisons
-    sig_cols = [c for c in axis_data.columns if c.endswith('_Significance')]
-    
-    if len(sig_cols) > 0:
-        sig_count = 0
-        for col in sig_cols:
-            sig_count += (axis_data[col] != 'ns').sum()
-        total_count = len(axis_data) * len(sig_cols)
-        
-        if total_count > 0:
-            print(f"{axis_name}: {sig_count}/{total_count} significant ({100*sig_count/total_count:.1f}%)")
-        else:
-            print(f"{axis_name}: No data to summarize")
-    else:
-        print(f"{axis_name}: No significance columns found")
-
-
-# Save figure
-base_name = os.path.join(output_dir, f'combined_{len(AXES_CONFIG)}_axes_{METRICS_TO_PLOT}')
-for fmt in ['png', 'pdf', 'svg', 'eps']:
-    plt.savefig(f"{base_name}.{fmt}", dpi=DPI, bbox_inches='tight')
-    print(f"✅ Saved: {base_name}.{fmt}")
-
-print(f"\n{'='*70}")
-print(f"📊 CONFIGURATION SUMMARY")
-print(f"{'='*70}")
-print(f"Dataset: Lung Radiotherapy")
-print(f"Classes (excluding background): {len(class_order)} classes")
-print(f"Figure dimensions: {FIG_WIDTH_MM}mm × {FIG_HEIGHT_MM}mm")
-print(f"Font: {FONT_CONFIG['family']}, {FONT_CONFIG['tick_label_size']}-{FONT_CONFIG['title_size']}pt")
-print(f"Statistical comparisons: Each model vs base model (per axis)")
-print(f"✅ Statistical Corrections Applied:")
-print(f"   • Paired pairing: Only samples in BOTH datasets are compared")
-print(f"   • Wilcoxon test: Proper paired test on differences (H0: median diff = 0)")
-print(f"   • Cohen's d: Calculated from std dev of paired differences")
-print(f"   • Effect size interpretation: negligible < small < medium < large")
-print(f"   • p-value thresholds: *** p<0.001, ** p<0.01, * p<0.05, ns p≥0.05")
-print(f"\n📋 CSV FORMAT: Columns layout (UNet3+ is base model)")
-print(f"   Rows: Each Class + Metric combination")
-print(f"   Columns: Axis | Class | Metric | {{ModelName}}_N | {{ModelName}}_MeanDiff | {{ModelName}}_CohensD | {{ModelName}}_EffectSize | {{ModelName}}_PValue | {{ModelName}}_Significance")
-
-plt.show()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-#qwen working
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-from scipy.stats import wilcoxon
-import os
-import warnings
-
-# Suppress the SciPy zero-difference warning for cleaner console output
-warnings.filterwarnings("ignore", message="Exact p-value calculation does not work if there are zeros")
-
-# ===============================
-# 1. CONFIGURATION
-# ===============================
-excel_files = [
-    ("My_Model", r'I:/Radiotherapy/Cervix/Result/Result_Analysis/EXCEL FILES/EXCEL FILES/UNet3+/UNet3+_Axial_segmentationMetrcis.xlsx'),
-    ("Model_A", r'I:/Radiotherapy/Cervix/Result/Result_Analysis/EXCEL FILES/EXCEL FILES/UNetBase/UNetBase_Axial_segmentationMetrics.xlsx'),
-    ("Model_B", r'I:/Radiotherapy/Cervix/Result/Result_Analysis/EXCEL FILES/EXCEL FILES/UNetBase/UNetBase_Axial_segmentationMetrics.xlsx'),
-    ("Model_C", r'I:/Radiotherapy/Cervix/Result/Result_Analysis/EXCEL FILES/EXCEL FILES/UNet/UNet_Axial_segmentationMetrics.xlsx'),
-    ("Model_D", r'I:/Radiotherapy/Cervix/Result/Result_Analysis/EXCEL FILES/EXCEL FILES/TransUNet/TransUNet_Axial_segmentationMetrics.xlsx')
-]
-
-METRIC = "Dice"
-SAVE_DIR = r'I:/Radiotherapy/Cervix/Paper/Result/Quantitative'
-os.makedirs(SAVE_DIR, exist_ok=True)
-
-# ===============================
-# 2. STATISTICAL HELPERS
-# ===============================
-def get_stats(x, y):
-    nx, ny = len(x), len(y)
-    std_pooled = np.sqrt(((nx-1)*np.std(x, ddof=1)**2 + (ny-1)*np.std(y, ddof=1)**2) / (nx+ny-2))
-    d = (np.mean(x) - np.mean(y)) / std_pooled if std_pooled != 0 else 0
-    g = d * (1 - (3 / (4 * (nx + ny) - 9)))
-    return d, g
-
-def get_stars(p):
-    if pd.isna(p): return "ns"
-    if p < 0.0001: return "****"
-    elif p < 0.001: return "***"
-    elif p < 0.01: return "**"
-    elif p < 0.05: return "*"
-    return "ns"
-
-# ===============================
-# 3. LOADING & CLEANING
-# ===============================
-all_data = []
-for name, path in excel_files:
-    df = pd.concat(pd.read_excel(path, sheet_name=None), ignore_index=True)
-    df[METRIC] = pd.to_numeric(df[METRIC], errors='coerce')
-    df = df.dropna(subset=[METRIC])
-    df["Class_Name"] = df["Class_Name"].astype(str).str.upper().str.strip()
-    # Remove unwanted classes
-    df = df[~df["Class_Name"].isin(["BACKGROUND", "NAN", "NONE", "", "0"])]
-    df["Model"] = name
-    all_data.append(df[["Filename", "Class_Name", METRIC, "Model"]])
-
-df_main = pd.concat(all_data, ignore_index=True)
-model_names = [x[0] for x in excel_files]
-ref_model = model_names[0]
-classes = sorted(df_main["Class_Name"].unique())
-
-# ==========================================
-# 4. PHASE 1: GENERATE TABLE & STAR LOOKUP
-# ==========================================
-stats_list = []
-# This dictionary will be the ONLY source of truth for the plot
-star_lookup = {} 
-
-for cls in classes:
-    ref_df = df_main[(df_main["Model"] == ref_model) & (df_main["Class_Name"] == cls)]
-    star_lookup[cls] = {}
-    
-    for other in model_names[1:]:
-        other_df = df_main[(df_main["Model"] == other) & (df_main["Class_Name"] == cls)]
-        merged = pd.merge(ref_df, other_df, on="Filename", suffixes=('_ref', '_other')).dropna()
-        
-        p, d, g = np.nan, 0, 0
-        if len(merged) > 2:
-            if not (merged[f"{METRIC}_ref"] == merged[f"{METRIC}_other"]).all():
-                # zero_method='pratt' handles the tied ranks that cause p-value fluctuations
-                _, p = wilcoxon(merged[f"{METRIC}_ref"], merged[f"{METRIC}_other"], zero_method='pratt')
-            d, g = get_stats(merged[f"{METRIC}_ref"], merged[f"{METRIC}_other"])
-        
-        sig_label = get_stars(p)
-        star_lookup[cls][other] = sig_label
-        
-        stats_list.append({
-            "Class": cls, 
-            "Comparison": f"{ref_model} vs {other}",
-            "P_value": p, 
-            "Significance": sig_label,
-            "Cohens_d": d, 
-            "Hedges_g": g, 
-            "N": len(merged)
-        })
-
-# Export Excel
-final_stats_df = pd.DataFrame(stats_list)
-final_stats_df.to_excel(os.path.join(SAVE_DIR, f"{METRIC.lower()}_pvalue_table.xlsx"), index=False)
-
-# ==========================================
-# 5. PHASE 2: PLOTTING (STRICTLY FROM LOOKUP)
-# ==========================================
-plt.figure(figsize=(22, 11))
-sns.set_style("white")
-
-# 🔑 FIX: Explicitly enforce ordering to match the loop & lookup dictionary
-ax = sns.boxplot(x="Class_Name", y=METRIC, hue="Model", data=df_main, 
-                 palette="Set2", showfliers=False, linewidth=1.2,
-                 order=classes, hue_order=model_names)
-
-sns.stripplot(x="Class_Name", y=METRIC, hue="Model", data=df_main, 
-              dodge=True, alpha=0.25, size=2.5, palette='dark:black', ax=ax, legend=False,
-              order=classes, hue_order=model_names)
-
-y_max = df_main[METRIC].max()
-y_range = y_max - df_main[METRIC].min()
-
-# Brackets - Iterating through the same logic used to build the table
-for i, cls in enumerate(classes):
-    offsets = np.linspace(-0.4, 0.4, len(model_names) + 2)[1:-1]
-    x_ref = i + offsets[0] # Position of My_Model (now guaranteed to be first)
-    
-    for j, other in enumerate(model_names[1:]):
-        x_other = i + offsets[j+1] # Position of Model_A, B, C, or D
-        
-        # STRICT LOOKUP: Get the star directly from Phase 1 result
-        p_text = star_lookup[cls][other]
-        
-        # Vertical stacking height
-        h = y_max + (0.07 * y_range * (j + 1))
-        
-        # Draw Bracket
-        ax.plot([x_ref, x_ref, x_other, x_other], [h - (0.015 * y_range), h, h, h - (0.015 * y_range)], 
-                color="black", lw=1.0)
-        
-        # Place text (Significance from Table)
-        ax.text((x_ref + x_other)/2, h, p_text, ha='center', va='bottom', 
-                fontsize=11, fontweight='bold', color='black')
-
-sns.despine()
-plt.title(f"Model Performance and Statistical Significance ({METRIC})", fontsize=16, pad=30)
-plt.xticks(rotation=20, ha='right', fontsize=12)
-plt.ylim(df_main[METRIC].min() - 0.05, y_max + (y_range * 0.5))
-
-# Export Plot
-plt.savefig(os.path.join(SAVE_DIR, f"{METRIC}_Nature_Final.png"), dpi=600, bbox_inches='tight')
-plt.savefig(os.path.join(SAVE_DIR, f"{METRIC}_Nature_Final.pdf"), format='pdf', bbox_inches='tight')
-
-plt.show()
-
-print(f"Process complete. Table and Plot are now strictly synchronized in {SAVE_DIR}")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# Stable version 1
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-from scipy.stats import wilcoxon
-import os
-import warnings
-from matplotlib.lines import Line2D
-from matplotlib.patches import PathPatch
-
-warnings.filterwarnings("ignore")
-
-# ===============================
-# 1. CONFIGURATION
-# ===============================
-excel_files = [
-    ("My_Model", r'I:/Radiotherapy/Cervix/Result/Result_Analysis/EXCEL FILES/EXCEL FILES/UNet3+/UNet3+_Axial_segmentationMetrcis.xlsx'),
-    ("Model_A", r'I:/Radiotherapy/Cervix/Result/Result_Analysis/EXCEL FILES/EXCEL FILES/UNetBase/UNetBase_Axial_segmentationMetrics.xlsx'),
-    ("Model_B", r'I:/Radiotherapy/Cervix/Result/Result_Analysis/EXCEL FILES/EXCEL FILES/UNetBase/UNetBase_Axial_segmentationMetrics.xlsx'),
-    ("Model_C", r'I:/Radiotherapy/Cervix/Result/Result_Analysis/EXCEL FILES/EXCEL FILES/UNet/UNet_Axial_segmentationMetrics.xlsx'),
-    ("Model_D", r'I:/Radiotherapy/Cervix/Result/Result_Analysis/EXCEL FILES/EXCEL FILES/TransUNet/TransUNet_Axial_segmentationMetrics.xlsx')
-]
-
-# Strict Color Mapping: (Fill, Border)
-color_map = {
-    "My_Model": ("#00b4d8", "#0096c7"), 
-    "Model_A":  ("#2a9134", "#137547"),
-    "Model_B":  ("#f4a261", "#e76f51"),
-    "Model_C":  ("#e9c46a", "#d4a017"),
-    "Model_D":  ("#a29bfe", "#6c5ce7")
-}
-
-METRIC = "Dice"
-SAVE_DIR = r'I:/Radiotherapy/Cervix/Paper/Result/Quantitative'
-os.makedirs(SAVE_DIR, exist_ok=True)
-
-# ===============================
-# 2. STATISTICAL HELPERS
-# ===============================
-def calculate_effect_size(x, y):
-    nx, ny = len(x), len(y)
-    dof = nx + ny - 2
-    std_pooled = np.sqrt(((nx-1)*np.std(x, ddof=1)**2 + (ny-1)*np.std(y, ddof=1)**2) / dof)
-    d = (np.mean(x) - np.mean(y)) / std_pooled if std_pooled != 0 else 0
-    # Hedges' g (Correction for small samples)
-    g = d * (1 - (3 / (4 * dof - 1)))
-    return d, g
-
-def get_stars(p_val):
-    if pd.isna(p_val): return "ns"
-    if p_val < 0.0001: return "****"
-    elif p_val < 0.001: return "***"
-    elif p_val < 0.01: return "**"
-    elif p_val < 0.05: return "*"
-    return "ns"
-
-# ===============================
-# 3. DATA PROCESSING
-# ===============================
-all_data = []
-for name, path in excel_files:
-    df_dict = pd.read_excel(path, sheet_name=None)
-    df = pd.concat(df_dict.values(), ignore_index=True)
-    df[METRIC] = pd.to_numeric(df[METRIC], errors='coerce')
-    df = df.dropna(subset=[METRIC])
-    df["Class_Name"] = df["Class_Name"].astype(str).str.upper().str.strip()
-    df = df[~df["Class_Name"].isin(["BACKGROUND", "NAN", "NONE", "", "0"])]
-    df["Model"] = name
-    all_data.append(df[["Filename", "Class_Name", METRIC, "Model"]])
-
-df_main = pd.concat(all_data, ignore_index=True)
-model_names = [x[0] for x in excel_files]
-classes = sorted(df_main["Class_Name"].unique())
-
-# PHASE 1: Generate Table with Cohen's D and Hedges' G
-stats_results = []
-star_lookup = {}
-
-for cls in classes:
-    star_lookup[cls] = {}
-    ref_data = df_main[(df_main["Model"] == model_names[0]) & (df_main["Class_Name"] == cls)]
-    
-    for other in model_names[1:]:
-        other_data = df_main[(df_main["Model"] == other) & (df_main["Class_Name"] == cls)]
-        merged = pd.merge(ref_data, other_data, on="Filename", suffixes=('_ref', '_other')).dropna()
-        
-        p, cohen_d, hedges_g = np.nan, 0, 0
-        if len(merged) > 2:
-            if not (merged[f"{METRIC}_ref"] == merged[f"{METRIC}_other"]).all():
-                _, p = wilcoxon(merged[f"{METRIC}_ref"], merged[f"{METRIC}_other"], zero_method='pratt')
-            cohen_d, hedges_g = calculate_effect_size(merged[f"{METRIC}_ref"], merged[f"{METRIC}_other"])
-        
-        sig = get_stars(p)
-        star_lookup[cls][other] = sig
-        stats_results.append({
-            "Class": cls,
-            "Comparison": f"{model_names[0]} vs {other}",
-            "P_value": p,
-            "Significance": sig,
-            "Cohens_d": cohen_d,
-            "Hedges_g": hedges_g,
-            "Sample_Size(N)": len(merged)
-        })
-
-# Save Table
-table_path = os.path.join(SAVE_DIR, f"{METRIC}_Complete_Stats.xlsx")
-pd.DataFrame(stats_results).to_excel(table_path, index=False)
-
-# ===============================
-# 4. PHASE 2: PLOTTING
-# ===============================
-fig, ax = plt.subplots(figsize=(24, 12))
-sns.set_style("white")
-
-# Boxplot
-bp = sns.boxplot(
-    x="Class_Name", y=METRIC, hue="Model", data=df_main, 
-    palette=[color_map[m][0] for m in model_names],
-    showfliers=False, linewidth=1.5,
-    order=classes, hue_order=model_names,
-    width=0.65, # Adjusted for gap
-    showmeans=True,
-    meanprops={"marker":"D", "markerfacecolor":"#E0E0E0", "markeredgecolor":"#757575", "markersize":4},
-    ax=ax
-)
-
-# CONSISTENT BORDER & MEDIAN COLORING
-# We iterate through the artists created by boxplot
-for i, artist in enumerate(ax.artists):
-    model_name = model_names[i % len(model_names)]
-    border_color = color_map[model_name][1]
-    
-    artist.set_edgecolor(border_color)
-    
-    # Each box has 6 associated lines (whiskers, caps, median)
-    for j in range(i*6, (i+1)*6):
-        line = ax.lines[j]
-        line.set_color(border_color)
-        # The 5th line (index 4) in the set is the median
-        if j % 6 == 4:
-            line.set_linewidth(2.5)
-
-# Jitter Points
-sns.stripplot(
-    x="Class_Name", y=METRIC, hue="Model", data=df_main, 
-    dodge=True, alpha=0.1, size=2, palette='dark:black', ax=ax, legend=False,
-    order=classes, hue_order=model_names
-)
-
-# BRACKETS
-y_pos = 1.05
-for i, cls in enumerate(classes):
-    x_coords = np.linspace(i - 0.3, i + 0.3, len(model_names))
-    x_ref = x_coords[0]
-    
-    for j, other in enumerate(model_names[1:]):
-        x_other = x_coords[j+1]
-        h = y_pos + (j * 0.08)
-        ax.plot([x_ref, x_ref, x_other, x_other], [h-0.015, h, h, h-0.015], color="black", lw=1.2)
-        ax.text((x_ref + x_other)/2, h, star_lookup[cls][other], ha='center', va='bottom', fontsize=11, fontweight='bold')
-
-# FINAL STYLING
-ax.set_yticks([0, 0.2, 0.4, 0.6, 0.8, 1.0])
-plt.ylim(df_main[METRIC].min() - 0.05, 1.55)
-sns.despine()
-
-# LEGEND
-handles, labels = ax.get_legend_handles_labels()
-line_median = Line2D([0], [0], color='#757575', lw=2, label='Median')
-marker_mean = Line2D([0], [0], marker='D', color='w', markerfacecolor='#E0E0E0', markeredgecolor="#757575", markersize=6, label='Mean')
-
-ax.legend(
-    handles=handles[:len(model_names)] + [line_median, marker_mean],
-    labels=labels[:len(model_names)] + ['Median', 'Mean (Diamond)'],
-    loc='lower right', frameon=True, edgecolor='black', fontsize=12
-)
-
-# EXPORTS
-png_path = os.path.join(SAVE_DIR, f"{METRIC}_Final_Plot.png")
-pdf_path = os.path.join(SAVE_DIR, f"{METRIC}_Final_Plot.pdf")
-plt.savefig(png_path, dpi=600, bbox_inches='tight')
-plt.savefig(pdf_path, format='pdf', bbox_inches='tight')
-
-plt.show()
-
-print(f"Excel Table with Cohen's d, Hedges' g, and N saved: {table_path}")
-print(f"PNG/PDF plots saved in: {SAVE_DIR}")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# Run this once to verify decoding is correct before full inference
-import cv2
-import numpy as np
-from PIL import Image
-import os
-
-MASKS_FOLDER = r'I:/Radiotherapy/Cervix/cervix_small_set/split/test/masks'
-test_file    = sorted(os.listdir(MASKS_FOLDER))[0]
-mask_bgr     = cv2.imread(os.path.join(MASKS_FOLDER, test_file), cv2.IMREAD_COLOR)
-
-bgr_to_class = {
-    (0,   0,   0):   0,
-    (0,   255, 0):   1,
-    (255, 255, 0):   2,
-    (255, 146, 153): 3,
-    (128, 64,  64):  4,
-    (0,   255, 255): 5,
-    (255, 60,  255): 6,
-    (55,  55,  255): 7,
-}
-
-class_map = np.zeros(mask_bgr.shape[:2], dtype=np.uint8)
-for bgr, cls_id in bgr_to_class.items():
-    match = np.all(mask_bgr == np.array(bgr, dtype=np.uint8), axis=-1)
-    class_map[match] = cls_id
-
-print(f"File          : {test_file}")
-print(f"Unique class IDs decoded : {np.unique(class_map)}")
-print(f"Pixel counts per class:")
-for cls_id in np.unique(class_map):
-    count = np.sum(class_map == cls_id)
-    print(f"  Class {cls_id} ({['Background','BODY','URINARY BLADDER','SMALL BOWEL','RECTUM','FEMORAL HEAD','GTV','CTV'][cls_id]:20s}): {count} pixels")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 #excel table creation segmentation metrics in Keras
 
@@ -1785,609 +365,6 @@ if skipped:
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-#exceptional for keras 
-import os
-import cv2
-import numpy as np
-import pandas as pd
-from keras.models import load_model
-from keras.utils import normalize
-import tensorflow as tf
-from keras.saving import register_keras_serializable
-from PIL import Image
-import traceback
-
-# ===============================
-# 1. CUSTOM OBJECTS
-# ===============================
-@register_keras_serializable()
-def focal_loss(y_true, y_pred, gamma=2.0):
-    epsilon = tf.keras.backend.epsilon()
-    y_pred = tf.clip_by_value(y_pred, epsilon, 1.0 - epsilon)
-    cross_entropy = -y_true * tf.math.log(y_pred)
-    loss = tf.pow(1 - y_pred, gamma) * cross_entropy
-    return tf.reduce_mean(loss, axis=-1)
-
-@register_keras_serializable()
-def soft_dice_loss(y_true, y_pred, smooth=1):
-    y_true = tf.cast(y_true, tf.float32)
-    y_pred = tf.cast(y_pred, tf.float32)
-    intersection = tf.reduce_sum(y_true * y_pred, axis=(1, 2, 3))
-    sum_true = tf.reduce_sum(y_true, axis=(1, 2, 3))
-    sum_pred = tf.reduce_sum(y_pred, axis=(1, 2, 3))
-    dice_coefficient = (2. * intersection + smooth) / (sum_true + sum_pred + smooth)
-    return tf.reduce_mean(1 - dice_coefficient)
-
-@register_keras_serializable()
-def combined_loss(y_true, y_pred, gamma=2.0, alpha=0.5):
-    return alpha * focal_loss(y_true, y_pred, gamma) + (1 - alpha) * soft_dice_loss(y_true, y_pred)
-
-@register_keras_serializable()
-class CustomMeanIoU(tf.keras.metrics.MeanIoU):
-    def __init__(self, num_classes, name='mean_iou', dtype='float32',
-                 ignore_class=None, sparse_y_true=True, sparse_y_pred=True, axis=-1):
-        super().__init__(num_classes=num_classes, name=name, dtype=dtype, ignore_class=ignore_class)
-        self.sparse_y_true = sparse_y_true
-        self.sparse_y_pred = sparse_y_pred
-        self.axis = axis
-
-    def update_state(self, y_true, y_pred, sample_weight=None):
-        y_true = tf.math.argmax(y_true, axis=-1)
-        y_pred = tf.math.argmax(y_pred, axis=-1)
-        return super().update_state(y_true, y_pred, sample_weight)
-
-    def get_config(self):
-        config = super().get_config()
-        config.update({'sparse_y_true': self.sparse_y_true,
-                       'sparse_y_pred': self.sparse_y_pred,
-                       'axis': self.axis})
-        return config
-
-# ===============================
-# 2. CONFIGURATION
-# ===============================
-MODEL_PATH = r'I:/Radiotherapy/Cervix/models/Cervix_small_Axial_200_epochs_unet3+_Enhanced.keras'
-IMAGES_FOLDER = r'I:/Radiotherapy/Cervix/cervix_small_set/split/test/images'
-MASKS_FOLDER = r'I:/Radiotherapy/Cervix/cervix_small_set/split/test/masks'
-SAVE_EXCEL = r'I:/Radiotherapy/Cervix/models/unet3+_Enhanced_segmentation_metrics_detailed_epoch_200_generated.xlsx'
-
-IMAGE_SIZE = (256, 256)
-
-class_names = {
-    0: 'Background', 1: 'BODY', 2: 'URINARY BLADDER', 3: 'SMALL BOWEL',
-    4: 'RECTUM', 5: 'FEMORAL HEAD', 6: 'GTV', 7: 'CTV'
-}
-
-rgb_to_class = {
-    (0, 0, 0): 0, (0, 255, 0): 1, (255, 255, 0): 2, (255, 146, 153): 3,
-    (128, 64, 64): 4, (0, 255, 255): 5, (255, 60, 255): 6, (55, 55, 255): 7,
-}
-
-# ===============================
-# 3. LOAD MODEL
-# ===============================
-custom_objects = {
-    'combined_loss': combined_loss,
-    'focal_loss': focal_loss,
-    'soft_dice_loss': soft_dice_loss,
-    'soft_dice_coefficient': lambda y_true, y_pred: 1 - soft_dice_loss(y_true, y_pred),
-    'CustomMeanIoU': CustomMeanIoU
-}
-
-print("Loading model...")
-try:
-    model = load_model(MODEL_PATH, custom_objects=custom_objects, compile=True)
-    print("Model loaded successfully.\n")
-except Exception as e:
-    print(f"Error loading model: {e}")
-    exit(1)
-
-# ===============================
-# 4. DECODE MASK - FIXED WITH ERROR HANDLING
-# ===============================
-def decode_mask(mask_path):
-    try:
-        # Open image and convert to RGB
-        img = Image.open(mask_path).convert("RGB")
-        mask_img = np.array(img, dtype=np.uint8)
-        
-        # Ensure it's a numpy array with proper shape
-        if not isinstance(mask_img, np.ndarray):
-            print(f"   decode_mask: Got {type(mask_img)} instead of numpy array")
-            mask_img = np.array(mask_img)
-        
-        # Initialize class map
-        class_map = np.zeros(mask_img.shape[:2], dtype=np.uint8)
-        
-        # Map RGB values to class IDs
-        for rgb, cls_id in rgb_to_class.items():
-            rgb_array = np.array(rgb, dtype=np.uint8)
-            match = np.all(mask_img == rgb_array, axis=-1)
-            class_map[match] = cls_id
-        
-        return class_map
-    
-    except Exception as e:
-        print(f"   decode_mask error for {mask_path}: {e}")
-        print(f"   Traceback: {traceback.format_exc()}")
-        raise
-
-# ===============================
-# 5. PREDICT MASK - COMPLETELY REWRITTEN WITH DEBUGGING
-# ===============================
-def predict_mask(image_path):
-    try:
-        # Load image
-        img = Image.open(image_path).convert("RGB")
-        img_array = np.array(img, dtype=np.uint8)
-        
-        # Ensure it's a numpy array
-        if not isinstance(img_array, np.ndarray):
-            print(f"   predict_mask: img_array is {type(img_array)}")
-            img_array = np.array(img_array)
-        
-        original_h, original_w = img_array.shape[:2]
-        
-        # Convert RGB to BGR for OpenCV
-        img_bgr = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
-        
-        # Resize
-        img_resized = cv2.resize(img_bgr, IMAGE_SIZE, interpolation=cv2.INTER_LINEAR)
-        
-        # Normalize to [0, 1] - ensure float32
-        img_normalized = img_resized.astype(np.float32) / 255.0
-        
-        # Add batch dimension
-        img_batch = np.expand_dims(img_normalized, axis=0)
-        
-        # Verify batch shape
-        if not isinstance(img_batch, np.ndarray):
-            print(f"   img_batch is {type(img_batch)}, converting...")
-            img_batch = np.array(img_batch)
-        
-        # Model prediction
-        prediction = model.predict(img_batch, verbose=0)
-        
-        # Handle prediction
-        if isinstance(prediction, list):
-            print(f"   WARNING: prediction is a list of length {len(prediction)}")
-            prediction = prediction[0] if len(prediction) > 0 else None
-        
-        if prediction is None:
-            raise ValueError("Prediction returned None")
-        
-        # Get predicted classes
-        if len(prediction.shape) == 4:
-            pred_class = np.argmax(prediction[0], axis=-1)
-        elif len(prediction.shape) == 3:
-            pred_class = np.argmax(prediction, axis=-1)
-        else:
-            raise ValueError(f"Unexpected prediction shape: {prediction.shape}")
-        
-        # Resize back to original size
-        pred_class = cv2.resize(pred_class.astype(np.uint8), 
-                                (original_w, original_h), 
-                                interpolation=cv2.INTER_NEAREST)
-        
-        return pred_class
-    
-    except Exception as e:
-        print(f"   predict_mask error for {image_path}: {e}")
-        print(f"   Traceback: {traceback.format_exc()}")
-        raise
-
-# ===============================
-# 6. COMPUTE METRICS (ENHANCED WITH DEBUGGING)
-# ===============================
-def compute_metrics(true_mask, pred_mask, filename):
-    try:
-        # Convert to numpy arrays if needed
-        if isinstance(true_mask, list):
-            print(f"   Converting true_mask from list to array")
-            true_mask = np.array(true_mask)
-        
-        if isinstance(pred_mask, list):
-            print(f"   Converting pred_mask from list to array")
-            pred_mask = np.array(pred_mask)
-        
-        # Check if they are numpy arrays
-        if not isinstance(true_mask, np.ndarray):
-            raise TypeError(f"true_mask is {type(true_mask)}, not a numpy array")
-        
-        if not isinstance(pred_mask, np.ndarray):
-            raise TypeError(f"pred_mask is {type(pred_mask)}, not a numpy array")
-        
-        # Check for shape mismatch
-        if true_mask.shape != pred_mask.shape:
-            print(f"   Shape mismatch: true={true_mask.shape}, pred={pred_mask.shape}")
-            pred_mask = cv2.resize(pred_mask.astype(np.uint8), 
-                                   (true_mask.shape[1], true_mask.shape[0]),
-                                   interpolation=cv2.INTER_NEAREST)
-        
-        # Flatten
-        true_flat = true_mask.flatten()
-        pred_flat = pred_mask.flatten()
-        
-        # Ensure same length
-        if len(true_flat) != len(pred_flat):
-            min_len = min(len(true_flat), len(pred_flat))
-            true_flat = true_flat[:min_len]
-            pred_flat = pred_flat[:min_len]
-        
-        total_pixels = len(true_flat)
-        rows = []
-        present_classes = np.union1d(np.unique(true_flat), np.unique(pred_flat))
-        
-        for class_id in present_classes:
-            true_bin = (true_flat == class_id)
-            pred_bin = (pred_flat == class_id)
-            
-            tp = int(np.sum(true_bin & pred_bin))
-            tn = int(np.sum(~true_bin & ~pred_bin))
-            fp = int(np.sum(~true_bin & pred_bin))
-            fn = int(np.sum(true_bin & ~pred_bin))
-            
-            union = tp + fp + fn
-            iou = tp / union if union > 0 else 0.0
-            dice = (2 * tp) / (2 * tp + fp + fn) if (2 * tp + fp + fn) > 0 else 0.0
-            precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
-            recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
-            specificity = tn / (tn + fp) if (tn + fp) > 0 else 0.0
-            f1 = (2 * precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
-
-            rows.append({
-                'Filename': filename,
-                'Class_ID': int(class_id),
-                'Class_Name': class_names.get(int(class_id), str(class_id)),
-                'Total_Pixels': total_pixels,
-                'TP': tp, 'TN': tn, 'FP': fp, 'FN': fn,
-                'Intersection': tp,
-                'Union': union,
-                'IoU': iou,
-                'Dice': dice,
-                'Precision': precision,
-                'Recall': recall,
-                'Specificity': specificity,
-                'F1_Score': f1,
-                'True_Positive_Rate': recall,
-                'False_Positive_Rate': fp / (fp + tn) if (fp + tn) > 0 else 0.0,
-            })
-        return rows
-    
-    except Exception as e:
-        print(f"   compute_metrics error: {e}")
-        print(f"   Traceback: {traceback.format_exc()}")
-        raise
-
-# ===============================
-# 7. MAIN LOOP WITH DETAILED DEBUGGING
-# ===============================
-image_extensions = ('.png', '.jpg', '.jpeg', '.bmp')
-image_files = sorted([f for f in os.listdir(IMAGES_FOLDER) if f.lower().endswith(image_extensions)])
-
-print(f"Found {len(image_files)} images. Starting inference...\n")
-
-all_metrics = []
-skipped = []
-errors = []
-
-for idx, img_file in enumerate(image_files[:20]):  # Process first 20 images for debugging
-    filename = os.path.splitext(img_file)[0]
-    image_path = os.path.join(IMAGES_FOLDER, img_file)
-    mask_path = os.path.join(MASKS_FOLDER, img_file)
-    
-    print(f"\n[{idx+1}] Processing: {img_file}")
-    
-    # Check if mask exists
-    if not os.path.exists(mask_path):
-        print(f"   [SKIP] No mask found at: {mask_path}")
-        skipped.append(img_file)
-        continue
-    
-    try:
-        # Decode ground truth mask
-        print(f"   Decoding mask...")
-        true_mask = decode_mask(mask_path)
-        print(f"   Mask shape: {true_mask.shape}, type: {type(true_mask)}")
-        
-        # Get prediction
-        print(f"   Getting prediction...")
-        pred_mask = predict_mask(image_path)
-        print(f"   Prediction shape: {pred_mask.shape}, type: {type(pred_mask)}")
-        
-        # Compute metrics
-        print(f"   Computing metrics...")
-        rows = compute_metrics(true_mask, pred_mask, filename)
-        all_metrics.extend(rows)
-        print(f"   ✓ Successfully processed")
-        
-    except Exception as e:
-        print(f"   [ERROR] {img_file}: {str(e)}")
-        errors.append(img_file)
-        continue
-
-print(f"\n{'='*50}")
-print(f"PROCESSING SUMMARY (first {len(image_files[:20])} images):")
-print(f"Successfully processed: {len(all_metrics) // 8 if all_metrics else 0} images")  # 8 classes per image
-print(f"Skipped (no mask): {len(skipped)}")
-print(f"Errors: {len(errors)}")
-if errors:
-    print(f"Error list: {errors}")
-print(f"{'='*50}\n")
-
-# ===============================
-# 8. SAVE RESULTS (if any metrics were collected)
-# ===============================
-if all_metrics:
-    column_order = ['Filename', 'Class_ID', 'Class_Name', 'Total_Pixels',
-                    'TP', 'TN', 'FP', 'FN', 'Intersection', 'Union',
-                    'IoU', 'Dice', 'Precision', 'Recall', 'Specificity', 
-                    'F1_Score', 'True_Positive_Rate', 'False_Positive_Rate']
-    
-    df_detailed = pd.DataFrame(all_metrics)[column_order]
-    
-    # Create output directory if it doesn't exist
-    os.makedirs(os.path.dirname(SAVE_EXCEL), exist_ok=True)
-    
-    # Save to Excel
-    with pd.ExcelWriter(SAVE_EXCEL, engine='openpyxl') as writer:
-        df_detailed.to_excel(writer, sheet_name='Detailed_Metrics', index=False)
-        
-        # Class summary
-        class_summary = df_detailed.groupby(['Class_ID', 'Class_Name']).agg(
-            TP=('TP','sum'), 
-            TN=('TN','sum'), 
-            FP=('FP','sum'), 
-            FN=('FN','sum'),
-            IoU=('IoU','mean'), 
-            Dice=('Dice','mean'),
-            Precision=('Precision','mean'),
-            Recall=('Recall','mean')
-        ).reset_index()
-        
-        class_summary.to_excel(writer, sheet_name='Class_Summary', index=False)
-    
-    print(f"\nExcel saved to: {SAVE_EXCEL}")
-    print(f"Total metrics records: {len(all_metrics)}")
-else:
-    print("\nNo metrics were generated. Debug the errors above.")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-import cv2
-import numpy as np
-import os
-
-MASKS_FOLDER = r'I:/Radiotherapy/Cervix/cervix_small_set/split/test/masks'
-
-# Known BGR values we expect
-bgr_to_class = {
-    (0,   0,   0):   0,   # Background
-    (0,   255, 0):   1,   # BODY
-    (255, 255, 0):   2,   # URINARY BLADDER
-    (153, 146, 255): 3,   # SMALL BOWEL
-    (64,  64,  128): 4,   # RECTUM
-    (0,   255, 255): 5,   # FEMORAL HEAD
-    (255, 60,  255): 6,   # GTV
-    (255, 55,  55):  7,   # CTV
-}
-
-class_names = {
-    0: 'Background', 1: 'BODY', 2: 'URINARY BLADDER',
-    3: 'SMALL BOWEL', 4: 'RECTUM', 5: 'FEMORAL HEAD',
-    6: 'GTV', 7: 'CTV'
-}
-
-mask_files = sorted([
-    f for f in os.listdir(MASKS_FOLDER)
-    if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp'))
-])
-
-# ── Step 1: Find masks that contain RECTUM or SMALL BOWEL ──
-print("=" * 65)
-print("STEP 1: Searching for masks containing RECTUM or SMALL BOWEL")
-print("=" * 65)
-
-rectum_bgr   = np.array([64,  64,  128], dtype=np.uint8)
-smallbowel_bgr = np.array([153, 146, 255], dtype=np.uint8)
-
-found_rectum     = []
-found_smallbowel = []
-
-for f in mask_files:
-    path = os.path.join(MASKS_FOLDER, f)
-    mask = cv2.imread(path, cv2.IMREAD_COLOR)
-    if mask is None:
-        continue
-    pixels = mask.reshape(-1, 3)
-
-    if np.any(np.all(pixels == rectum_bgr, axis=1)):
-        found_rectum.append(f)
-    if np.any(np.all(pixels == smallbowel_bgr, axis=1)):
-        found_smallbowel.append(f)
-
-print(f"Masks with RECTUM BGR(64,64,128)      : {len(found_rectum)}")
-print(f"Masks with SMALL BOWEL BGR(153,146,255): {len(found_smallbowel)}")
-
-# ── Step 2: Deep inspect one mask per class ──
-print("\n" + "=" * 65)
-print("STEP 2: Deep pixel inspection of sample masks")
-print("=" * 65)
-
-# Pick one mask that has RECTUM if found, otherwise first mask
-sample_files = []
-if found_rectum:
-    sample_files.append(("RECTUM sample",    found_rectum[0]))
-if found_smallbowel:
-    sample_files.append(("SMALL BOWEL sample", found_smallbowel[0]))
-if not sample_files:
-    sample_files.append(("First mask", mask_files[0]))
-
-for label, f in sample_files:
-    path = os.path.join(MASKS_FOLDER, f)
-    mask = cv2.imread(path, cv2.IMREAD_COLOR)
-    pixels = mask.reshape(-1, 3)
-    unique, counts = np.unique(pixels, axis=0, return_counts=True)
-
-    print(f"\n  [{label}] File: {f}")
-    print(f"  {'BGR Value':<25} {'Count':>10}  {'Matched Class'}")
-    print(f"  {'-'*60}")
-    for u, c in zip(unique, counts):
-        bgr_key = tuple(u.tolist())
-        cls     = bgr_to_class.get(bgr_key, "*** NO MATCH ***")
-        cls_name = class_names.get(cls, cls)
-        print(f"  BGR{str(bgr_key):<22} {c:>10}  → {cls_name}")
-
-# ── Step 3: Check image bit depth and mode ──
-print("\n" + "=" * 65)
-print("STEP 3: Image properties check")
-print("=" * 65)
-
-for f in mask_files[:5]:
-    path = os.path.join(MASKS_FOLDER, f)
-    mask = cv2.imread(path, cv2.IMREAD_UNCHANGED)  # read raw, no conversion
-    print(f"\n  File  : {f}")
-    print(f"  Shape : {mask.shape}")
-    print(f"  Dtype : {mask.dtype}")
-    print(f"  Min   : {mask.min()}  Max: {mask.max()}")
-    if len(mask.shape) == 2:
-        print(f"  *** GRAYSCALE image — pixel values ARE class IDs directly ***")
-        print(f"  Unique values: {np.unique(mask).tolist()}")
-    elif mask.shape[2] == 4:
-        print(f"  *** RGBA image — has alpha channel ***")
-        alpha_unique = np.unique(mask[:,:,3])
-        print(f"  Alpha channel unique values: {alpha_unique.tolist()}")
-
-# ── Step 4: Try reading as RGBA and check alpha ──
-print("\n" + "=" * 65)
-print("STEP 4: RGBA check on masks with missing classes")
-print("=" * 65)
-
-check_files = mask_files[:3]
-for f in check_files:
-    path      = os.path.join(MASKS_FOLDER, f)
-    mask_rgba = cv2.imread(path, cv2.IMREAD_UNCHANGED)
-    mask_bgr  = cv2.imread(path, cv2.IMREAD_COLOR)
-
-    print(f"\n  File         : {f}")
-    print(f"  UNCHANGED shape: {mask_rgba.shape}  dtype: {mask_rgba.dtype}")
-    print(f"  COLOR shape    : {mask_bgr.shape}   dtype: {mask_bgr.dtype}")
-
-    pixels_bgr  = mask_bgr.reshape(-1, 3)
-    unique_bgr  = np.unique(pixels_bgr, axis=0)
-    print(f"  Unique BGR (COLOR read)    : {[tuple(u.tolist()) for u in unique_bgr]}")
-
-    if len(mask_rgba.shape) == 3 and mask_rgba.shape[2] == 4:
-        pixels_rgba = mask_rgba.reshape(-1, 4)
-        unique_rgba = np.unique(pixels_rgba, axis=0)
-        print(f"  Unique BGRA (UNCHANGED read): {[tuple(u.tolist()) for u in unique_rgba]}")
-
-
-
-
-
-
-
-
-
-
-
-#RGB and BGR values
-import cv2
-import numpy as np
-import os
-
-MASKS_FOLDER = r'I:/Radiotherapy/Cervix/cervix_small_set/split/test/masks'
-
-mask_files = sorted([
-    f for f in os.listdir(MASKS_FOLDER)
-    if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp'))
-])
-
-print(f"Found {len(mask_files)} mask files\n")
-
-all_unique_bgr = set()
-
-for idx, f in enumerate(mask_files):
-    path  = os.path.join(MASKS_FOLDER, f)
-    mask  = cv2.imread(path, cv2.IMREAD_COLOR)
-    if mask is None:
-        print(f"  [SKIP] Could not read: {f}")
-        continue
-    pixels = mask.reshape(-1, 3)
-    unique = np.unique(pixels, axis=0)
-    for u in unique:
-        all_unique_bgr.add(tuple(u.tolist()))
-
-    if (idx + 1) % 50 == 0:
-        print(f"  Scanned {idx+1}/{len(mask_files)} masks...")
-
-print(f"\n{'='*55}")
-print(f"Total unique BGR colours found across ALL masks: {len(all_unique_bgr)}")
-print(f"{'='*55}")
-print(f"\n{'BGR Value':<25} {'RGB Value':<25}")
-print(f"{'-'*50}")
-for bgr in sorted(all_unique_bgr):
-    rgb = (bgr[2], bgr[1], bgr[0])
-    print(f"BGR{str(bgr):<22} RGB{str(rgb):<22}")
-
-print(f"\n{'='*55}")
-print("Copy-paste ready bgr_to_class mapping:")
-print(f"{'='*55}")
-print("bgr_to_class = {")
-for i, bgr in enumerate(sorted(all_unique_bgr)):
-    rgb = (bgr[2], bgr[1], bgr[0])
-    print(f"    {str(bgr)}: {i},   # RGB{rgb}  ← assign correct class ID")
-print("}")
 
 
 
@@ -2807,34 +784,7 @@ if skipped:
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-#Excel Table Creation nnUNet 
+#Excel Table Creation nnUNet segmentation metrics pth
 
 import os
 import cv2
@@ -3237,6 +1187,23 @@ for cid, cname in class_names.items():
         print(f"  {cname:20s}: {n}/{total_imgs} ({100*n/total_imgs:.1f}%)")
 if skipped:
     print(f"\nSkipped ({len(skipped)}): {skipped}")
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
 
 
 
@@ -3265,37 +1232,7 @@ if skipped:
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-#Excel Table Creation BAT-RM
+#Excel Table Creation BAT-RM segmentation metrics pth
 
 import os
 import cv2
@@ -3696,7 +1633,26 @@ for cid, cname in class_names.items():
     if n > 0:
         print(f"  {cname:20s}: {n}/{total_imgs} ({100*n/total_imgs:.1f}%)")
 if skipped:
-    print(f"\nSkipped ({len(skipped)}): {skipped}")
+    print(f"\nSkipped ({len(skipped)}): {skipped}")    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
 
 
 
@@ -3725,37 +1681,7 @@ if skipped:
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+#Segmentation metrics plots #################################################################
 
 #Final Version Box plot
 import pandas as pd
@@ -3801,8 +1727,8 @@ color_map = {
     "UNETR":  ("#a29bfe", "#6c5ce7")
 }
 
-METRIC   = "IoU"
-SAVE_DIR = r'I:/Radiotherapy/Cervix/Paper/Result/Quantitative/segmentation_Metrics'
+METRIC   = "F1_Score"
+SAVE_DIR = r'I:/Radiotherapy/Cervix/Paper/Result/Quantitative/final/segmentation_Metrics'
 os.makedirs(SAVE_DIR, exist_ok=True)
 
 # ===============================
@@ -4003,7 +1929,9 @@ plt.savefig(os.path.join(SAVE_DIR, f"{METRIC}_Plot.png"), dpi=600, bbox_inches='
 plt.savefig(os.path.join(SAVE_DIR, f"{METRIC}_Plot.pdf"), format='pdf', bbox_inches='tight')
 plt.show()
 
-print(f"Success. Files saved in: {SAVE_DIR}")
+print(f"Success. Files saved in: {SAVE_DIR}")    
+    
+    
 
 
 
@@ -4046,13 +1974,7 @@ print(f"Success. Files saved in: {SAVE_DIR}")
 
 
 
-
-
-
-
-
-
-#Complete Statistical Analysis
+#Complete Statistical Analysis of segmentation metrics 
 import pandas as pd
 import numpy as np
 from scipy.stats import wilcoxon
@@ -4065,17 +1987,17 @@ warnings.filterwarnings("ignore")
 # 1. CONFIGURATION
 # ===============================
 excel_files = [
-    ("BAT-RM", r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/200 Epochs/segmentation_metrics_detailed_epoch_200_generated.xlsx'),
-    ("nnUNet",  r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/134 epochs/segmentation_metrics_detailed_epoch_134_generated.xlsx'),
+    ("BAT-RM",    r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/200 Epochs/segmentation_metrics_enhanced_200_epoch_enhanced.xlsx'),
+    ("nnUNet",    r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/134 epochs/segmentation_metrics_detailed_epoch_134_generated.xlsx'),
     ("SegMamba",  r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/UNET3+_segmentation_metrics_detailed_epoch_200_generated.xlsx'),
-    ("TransUNet",  r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/BAT-RM/BAT_RM_segmentation_metrics_generated.xlsx'),
-    ("UNETR",  r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/nnUNet_256/Segmentation_Cervix_small_Axial_axis_pytorch_detailed_metrics_Generated.xlsx')
+    ("TransUNet", r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/vanilla_unet_segmentation_metrics_detailed_epoch_200_generated.xlsx'),
+    ("UNETR",     r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/nnUNet_256/Segmentation_Cervix_small_Axial_axis_pytorch_detailed_metrics_Generated.xlsx'),
 ]
 
 METRICS = ["Dice", "IoU", "F1_Score", "Recall", "Specificity",
            "True_Positive_Rate", "False_Positive_Rate"]
 
-SAVE_PATH = r'I:/Radiotherapy/Cervix/Paper/Result/Quantitative/Complete_Statistical_Analysis.xlsx'
+SAVE_PATH = r'I:/Radiotherapy/Cervix/Paper/Result/Quantitative/final/segmentation_metrics/Complete_Statistical_Analysis_segmentation.xlsx'
 os.makedirs(os.path.dirname(SAVE_PATH), exist_ok=True)
 
 # ===============================
@@ -4240,7 +2162,24 @@ with pd.ExcelWriter(SAVE_PATH, engine='openpyxl') as writer:
             max_len = max(len(str(cell.value or "")) for cell in col_cells)
             ws.column_dimensions[col_cells[0].column_letter].width = min(max_len + 3, 40)
 
-print(f"\nDone. Saved to: {SAVE_PATH}")
+print(f"\nDone. Saved to: {SAVE_PATH}")    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -4266,572 +2205,1320 @@ print(f"\nDone. Saved to: {SAVE_PATH}")
 
 
 # =============================================================================
-# HEATMAP CLUSTERING DENDROGRAM — Segmentation Metrics
+# PAIRED VIOLIN + BOX PLOTS — CLASSIFICATION METRICS
+# Nature Medicine Style — Recall, Specificity, F1, TPR, FPR (+ FNR derived)
 # =============================================================================
-# Visualises mean IoU (or any metric) per Model × Class as a clustermap.
-# Rows (models) and columns (classes) are reordered by hierarchical clustering,
-# and dendrograms are drawn on both axes so you can spot which models or
-# anatomical classes are most similar.
 #
-# Dependencies: pandas, numpy, matplotlib, seaborn, scipy, openpyxl
-# =============================================================================
-
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.ticker as ticker
-import seaborn as sns
-from scipy.cluster.hierarchy import linkage, dendrogram
-import os
-import warnings
-
-warnings.filterwarnings("ignore")
-
-# =============================================================================
-# 1. CONFIGURATION  — edit only this section
-# =============================================================================
-
-excel_files = [
-    ("BAT-RM",    r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/200 Epochs/segmentation_metrics_detailed_epoch_200_generated.xlsx'),
-    ("nnUNet",    r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/134 epochs/segmentation_metrics_detailed_epoch_134_generated.xlsx'),
-    ("SegMamba",  r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/UNET3+_segmentation_metrics_detailed_epoch_200_generated.xlsx'),
-    ("TransUNet", r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/vanilla_unet_segmentation_metrics_detailed_epoch_200_generated.xlsx'),
-    ("UNETR",     r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/nnUNet_256/Segmentation_Cervix_small_Axial_axis_pytorch_detailed_metrics_Generated.xlsx'),
-]
-
-METRIC   = "IoU"          # Column to aggregate (change to "Dice", "HD95", etc.)
-AGG_FN   = "mean"         # Aggregation over patients: "mean" | "median"
-LINKAGE  = "ward"         # Clustering linkage: "ward" | "average" | "complete"
-CMAP     = "YlOrRd"       # Colour map: "YlOrRd" | "viridis" | "coolwarm" | "RdYlGn"
-ANNOT    = True           # Print numeric values inside each cell
-FMT      = ".2f"          # Cell annotation format
-
-SAVE_DIR = r'I:/Radiotherapy/Cervix/Paper/Result/Quantitative'
-os.makedirs(SAVE_DIR, exist_ok=True)
-
-# =============================================================================
-# 2. DATA LOADING & CLEANING
-# =============================================================================
-
-all_data = []
-for name, path in excel_files:
-    df = pd.concat(pd.read_excel(path, sheet_name=None), ignore_index=True)
-    df[METRIC]       = pd.to_numeric(df[METRIC], errors='coerce')
-    df               = df.dropna(subset=[METRIC])
-    df["Class_Name"] = df["Class_Name"].astype(str).str.upper().str.strip()
-    # Remove non-anatomical / placeholder classes
-    df = df[~df["Class_Name"].isin(["BACKGROUND", "NAN", "NONE", "", "0"])]
-    df["Model"] = name
-    all_data.append(df[["Filename", "Class_Name", METRIC, "Model"]])
-
-df_main = pd.concat(all_data, ignore_index=True)
-
-# =============================================================================
-# 3. BUILD PIVOT TABLE  (rows = Models, columns = Classes)
-# =============================================================================
-# Each cell = mean (or median) metric value for that model–class pair.
-# Missing combinations are filled with NaN; columns with all-NaN are dropped.
-
-pivot = (
-    df_main
-    .groupby(["Model", "Class_Name"])[METRIC]
-    .agg(AGG_FN)
-    .unstack("Class_Name")          # → rows: Model, cols: Class_Name
-    .dropna(axis=1, how="all")      # drop classes absent from every model
-)
-
-# Preserve original model ordering for the saved Excel summary
-pivot_ordered = pivot.loc[[x[0] for x in excel_files if x[0] in pivot.index]]
-
-# =============================================================================
-# 4. SAVE SUMMARY TABLE (pivot) TO EXCEL
-# =============================================================================
-
-summary_path = os.path.join(SAVE_DIR, f"{METRIC}_Model_Class_{AGG_FN}.xlsx")
-pivot_ordered.to_excel(summary_path)
-print(f"Summary pivot saved → {summary_path}")
-
-# =============================================================================
-# 5. HIERARCHICAL CLUSTERING LINKAGE MATRICES
-#    Row linkage  → groups similar MODELS together
-#    Col linkage  → groups similar CLASSES together
-# =============================================================================
-
-# Fill any remaining NaN with row mean so clustering distance is well-defined
-pivot_filled = pivot.apply(lambda col: col.fillna(col.mean()), axis=0)
-
-row_linkage = linkage(pivot_filled.values,            method=LINKAGE, metric="euclidean")
-col_linkage = linkage(pivot_filled.values.T,          method=LINKAGE, metric="euclidean")
-
-# =============================================================================
-# 6. CLUSTERMAP — seaborn does heavy lifting; we customise afterwards
-# =============================================================================
-
-sns.set_style("white")
-sns.set_context("paper", font_scale=1.1)
-
-g = sns.clustermap(
-    pivot_filled,
-    row_linkage   = row_linkage,
-    col_linkage   = col_linkage,
-    cmap          = CMAP,
-    annot         = ANNOT,
-    fmt           = FMT,
-    linewidths    = 0.5,
-    linecolor     = "white",
-    vmin          = 0,
-    vmax          = 1,
-    figsize       = (16, 8),
-    dendrogram_ratio = (0.15, 0.12),   # (row_dendro_width, col_dendro_height)
-    cbar_pos      = (0.02, 0.82, 0.03, 0.15),  # (left, bottom, width, height)
-    tree_kws      = {"linewidths": 1.5, "colors": "#555555"},
-)
-
-# ------------------------------------------------------------------
-# 6a. Colour bar label
-# ------------------------------------------------------------------
-g.cax.set_ylabel(f"{AGG_FN.capitalize()} {METRIC}", fontsize=11, labelpad=8)
-g.cax.yaxis.set_label_position("right")
-
-# ------------------------------------------------------------------
-# 6b. Axis labels & tick styling
-# ------------------------------------------------------------------
-g.ax_heatmap.set_xlabel("Anatomical Class",  fontsize=13, labelpad=8)
-g.ax_heatmap.set_ylabel("Model",             fontsize=13, labelpad=8)
-
-g.ax_heatmap.tick_params(axis="x", labelsize=10, rotation=45)
-g.ax_heatmap.tick_params(axis="y", labelsize=11, rotation=0)
-
-# ------------------------------------------------------------------
-# 6c. Title on the heatmap axes (not fig.suptitle — avoids overlap)
-# ------------------------------------------------------------------
-g.ax_heatmap.set_title(
-    f"Model × Class {AGG_FN.capitalize()} {METRIC}  |  Linkage: {LINKAGE}",
-    fontsize=14, pad=12, fontweight="bold"
-)
-
-# ------------------------------------------------------------------
-# 6d. Annotate each cell — recolour text for readability on dark cells
-# ------------------------------------------------------------------
-if ANNOT:
-    for text in g.ax_heatmap.texts:
-        val = float(text.get_text()) if text.get_text() else np.nan
-        text.set_fontsize(9)
-        text.set_color("white" if val > 0.65 else "#222222")
-
-# ------------------------------------------------------------------
-# 6e. Draw a subtle box around the heatmap
-# ------------------------------------------------------------------
-for spine in g.ax_heatmap.spines.values():
-    spine.set_visible(True)
-    spine.set_color("#cccccc")
-    spine.set_linewidth(0.8)
-
-# =============================================================================
-# 7. SAVE
-# =============================================================================
-
-png_path = os.path.join(SAVE_DIR, f"{METRIC}_Clustermap.png")
-pdf_path = os.path.join(SAVE_DIR, f"{METRIC}_Clustermap.pdf")
-
-plt.savefig(png_path, dpi=600, bbox_inches="tight")
-plt.savefig(pdf_path, format="pdf", bbox_inches="tight")
-plt.show()
-
-print(f"Clustermap saved →\n  {png_path}\n  {pdf_path}")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# =============================================================================
-# RADAR / SPIDER PLOT — Publication Quality (Nature Medicine Style)
-# =============================================================================
-# Generates a multi-model radar chart comparing segmentation performance
-# across anatomical classes.
+# Extends the paired violin framework to pixel-level classification metrics
+# derived from the segmentation confusion matrix columns:
+#   TP, TN, FP, FN → Recall, Specificity, F1, TPR, FPR, FNR
 #
-# Design principles (Nature Medicine guidelines):
-#   • Clean white background, no chart junk
-#   • Helvetica-style sans-serif (matplotlib's DejaVu Sans ≈ equivalent)
-#   • Muted, perceptually-distinct colour palette (colour-blind friendly)
-#   • Thin gridlines, minimal tick marks
-#   • Legend outside plot area, no box
-#   • 600 DPI PNG + vector PDF for submission
+# Metrics used:
+#   Recall / TPR  = TP / (TP + FN)          [higher = better]
+#   Specificity   = TN / (TN + FP)          [higher = better]
+#   F1_Score      = 2·TP / (2·TP + FP + FN) [higher = better]
+#   FPR           = FP / (FP + TN)          [lower  = better]
+#   FNR           = FN / (FN + TP)          [lower  = better]  ← derived
 #
-# Dependencies: pandas, numpy, matplotlib, scipy, openpyxl
+# Note: Recall == TPR by definition; both are included separately because
+# your Excel has them as independent columns — we verify they match and
+# keep both for completeness. If they are identical the panel is skipped.
+#
+# LAYOUT — one figure per class:
+#   Columns : classification metrics (5–6 columns)
+#   Rows    : baselines (4 rows)
+#   Each panel: violin + box + strip + connecting lines + paired stats
+#
+# Additional output:
+#   • Summary heatmap (class × metric signed median difference)
+#   • Excel table with paired Wilcoxon p, Hedges' g, N+/N−/ties
+#
 # =============================================================================
 
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
-import matplotlib.patheffects as pe
-from matplotlib.patches import FancyArrowPatch
-from matplotlib.lines import Line2D
+import matplotlib.lines as mlines
+from matplotlib.colors import TwoSlopeNorm
+from scipy.stats import wilcoxon, gaussian_kde
 import os
 import warnings
 
 warnings.filterwarnings("ignore")
 
 # =============================================================================
-# 1. CONFIGURATION  — edit only this section
+# 1. CONFIGURATION
 # =============================================================================
 
-excel_files = [
-    ("BAT-RM",    r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/200 Epochs/segmentation_metrics_detailed_epoch_200_generated.xlsx'),
+REFERENCE_MODEL = "BAT-RM"
+
+# Each tuple: (model_name, path_to_segmentation_excel)
+# The segmentation excel must contain the columns listed in the header above.
+excel_files_seg = [
+    ("BAT-RM",    r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/200 Epochs/segmentation_metrics_enhanced_200_epoch_enhanced.xlsx'),
     ("nnUNet",    r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/134 epochs/segmentation_metrics_detailed_epoch_134_generated.xlsx'),
     ("SegMamba",  r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/UNET3+_segmentation_metrics_detailed_epoch_200_generated.xlsx'),
     ("TransUNet", r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/vanilla_unet_segmentation_metrics_detailed_epoch_200_generated.xlsx'),
     ("UNETR",     r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/nnUNet_256/Segmentation_Cervix_small_Axial_axis_pytorch_detailed_metrics_Generated.xlsx'),
 ]
 
-METRIC   = "IoU"     # Column to plot: "IoU" | "Dice" | "HD95" | etc.
-AGG_FN   = "mean"    # Per-patient aggregation: "mean" | "median"
+class_list = [
+    "BODY", "URINARY BLADDER", "SMALL BOWEL",
+    "RECTUM", "FEMORAL HEAD", "GTV", "CTV",
+]
 
-# ------------------------------------------------------------------------------
-# Nature Medicine–compatible colour palette
-# Perceptually uniform, colour-blind safe (Wong 2011 + adjusted for print)
-# Order matches excel_files above
-# ------------------------------------------------------------------------------
+# ── Metrics to plot ──
+# "derived" = computed from raw TP/TN/FP/FN columns
+# "column"  = taken directly from the Excel column of that name
+METRIC_CONFIG = {
+    "Recall":      {"source": "column",  "col": "Recall",      "lower_is_better": False},
+    "Specificity": {"source": "column",  "col": "Specificity", "lower_is_better": False},
+    "F1_Score":    {"source": "column",  "col": "F1_Score",    "lower_is_better": False},
+    "TPR":         {"source": "column",  "col": "True_Positive_Rate",  "lower_is_better": False},
+    "FPR":         {"source": "column",  "col": "False_Positive_Rate", "lower_is_better": True},
+    "FNR":         {"source": "derived", "col": None,           "lower_is_better": True},
+}
+PLOT_METRICS = list(METRIC_CONFIG.keys())
+
+# Connecting line colours
+WIN_COLOR  = "#CC3311"   # reference model wins this patient
+LOSE_COLOR = "#4477AA"   # baseline wins
+TIE_COLOR  = "#AAAAAA"
+
+MAX_LINES = 60
+N_BOOT    = 1000
+
 MODEL_COLORS = {
-    "BAT-RM":    "#0077BB",   # Blue
-    "nnUNet":    "#009988",   # Teal
-    "SegMamba":  "#EE7733",   # Orange
-    "TransUNet": "#CC3311",   # Red
-    "UNETR":     "#AA4499",   # Purple
-}
-MODEL_MARKERS = {
-    "BAT-RM":    "o",
-    "nnUNet":    "s",
-    "SegMamba":  "^",
-    "TransUNet": "D",
-    "UNETR":     "P",
+    "BAT-RM":    "#0077BB",
+    "nnUNet":    "#009988",
+    "SegMamba":  "#EE7733",
+    "TransUNet": "#CC3311",
+    "UNETR":     "#AA4499",
 }
 
-# ------------------------------------------------------------------------------
-# Fill opacity for each model's polygon (0 = no fill, 1 = opaque)
-# Slight fill helps readers distinguish overlapping polygons
-# ------------------------------------------------------------------------------
-FILL_ALPHA = 0.08
-
-# Radial grid rings to draw (metric values)
-GRID_LEVELS = [0.2, 0.4, 0.6, 0.8, 1.0]
-
-SAVE_DIR = r'I:/Radiotherapy/Cervix/Paper/Result/Quantitative'
+SAVE_DIR = r'I:/Radiotherapy/Cervix/Paper/Result/Quantitative/Final/Segmentation_Metrics/PairedViolin_ClassMetrics'
 os.makedirs(SAVE_DIR, exist_ok=True)
 
 # =============================================================================
-# 2. MATPLOTLIB GLOBAL STYLE  (Nature Medicine look)
-# =============================================================================
-# • Font: Helvetica via matplotlib's sans-serif stack
-# • All text sizes explicit so the figure scales correctly at 600 DPI
-# • No top/right spines on non-polar axes
+# 2. MATPLOTLIB GLOBAL STYLE
 # =============================================================================
 
 plt.rcParams.update({
-    # --- Font ---
-    "font.family":        "sans-serif",
-    "font.sans-serif":    ["Helvetica", "Arial", "DejaVu Sans"],
-    "font.size":          9,
-    "axes.titlesize":     10,
-    "axes.labelsize":     9,
-    "xtick.labelsize":    8,
-    "ytick.labelsize":    8,
-    "legend.fontsize":    8.5,
-
-    # --- Lines ---
-    "axes.linewidth":     0.6,
-    "grid.linewidth":     0.4,
-    "lines.linewidth":    1.4,
-
-    # --- Colour ---
-    "axes.facecolor":     "white",
-    "figure.facecolor":   "white",
-    "grid.color":         "#cccccc",
-    "grid.alpha":         0.7,
-
-    # --- Output quality ---
-    "figure.dpi":         150,       # screen preview
-    "savefig.dpi":        600,       # journal submission
-    "pdf.fonttype":       42,        # embed fonts as TrueType (required by Nature)
-    "ps.fonttype":        42,
+    "font.family":      "sans-serif",
+    "font.sans-serif":  ["Helvetica", "Arial", "DejaVu Sans"],
+    "font.size":        9,
+    "axes.titlesize":   9,
+    "axes.labelsize":   8.5,
+    "xtick.labelsize":  8,
+    "ytick.labelsize":  7.5,
+    "axes.linewidth":   0.6,
+    "grid.linewidth":   0.35,
+    "axes.facecolor":   "white",
+    "figure.facecolor": "white",
+    "pdf.fonttype":     42,
+    "ps.fonttype":      42,
+    "figure.dpi":       150,
+    "savefig.dpi":      600,
 })
 
 # =============================================================================
-# 3. DATA LOADING & CLEANING
+# 3. DATA LOADING & METRIC DERIVATION
 # =============================================================================
 
+def load_seg_metrics(excel_files, class_list):
+    """
+    Load all sheets from each segmentation Excel, concatenate,
+    filter to target classes, derive FNR, and tag with Model.
+
+    Returns long-format DataFrame with one row per patient × class × model.
+    """
+    all_data = []
+
+    raw_cols = [
+        "Filename", "Class_Name",
+        "TP", "TN", "FP", "FN",
+        "Recall", "Specificity", "F1_Score",
+        "True_Positive_Rate", "False_Positive_Rate",
+        "Precision", "IoU", "Dice",
+    ]
+
+    for name, path in excel_files:
+        df = pd.concat(pd.read_excel(path, sheet_name=None), ignore_index=True)
+
+        # Normalise class names
+        df["Class_Name"] = df["Class_Name"].astype(str).str.upper().str.strip()
+        df = df[df["Class_Name"].isin([c.upper() for c in class_list])]
+        df = df[~df["Class_Name"].isin(["BACKGROUND", "0", "NAN", "NONE", ""])]
+
+        # Keep only columns that exist
+        keep = [c for c in raw_cols if c in df.columns]
+        df   = df[keep].copy()
+
+        # Coerce numerics
+        for c in keep:
+            if c not in ("Filename", "Class_Name"):
+                df[c] = pd.to_numeric(df[c], errors="coerce")
+
+        # ── Derive FNR = FN / (FN + TP) ──
+        if "FN" in df.columns and "TP" in df.columns:
+            denom    = df["FN"] + df["TP"]
+            df["FNR"] = np.where(denom > 0, df["FN"] / denom, np.nan)
+        else:
+            df["FNR"] = np.nan
+
+        # Verify TPR == Recall (they should be identical; flag if not)
+        if "True_Positive_Rate" in df.columns and "Recall" in df.columns:
+            delta = (df["True_Positive_Rate"] - df["Recall"]).abs()
+            if delta.max() > 1e-6:
+                print(f"  ⚠  {name}: TPR and Recall differ (max Δ={delta.max():.6f})")
+
+        df["Model"] = name
+        all_data.append(df)
+
+    if not all_data:
+        raise ValueError("No segmentation data loaded. Check file paths.")
+
+    return pd.concat(all_data, ignore_index=True)
+
+
+print("Loading segmentation metrics …")
+df_all = load_seg_metrics(excel_files_seg, class_list)
+
+model_names = [m for m, _ in excel_files_seg]
+baselines   = [m for m in model_names if m != REFERENCE_MODEL]
+classes     = sorted(df_all["Class_Name"].dropna().unique())
+
+print(f"Models   : {model_names}")
+print(f"Classes  : {classes}")
+print(f"Metrics  : {PLOT_METRICS}")
+print(f"Patients : {df_all['Filename'].nunique()}\n")
+
+# =============================================================================
+# 4. STATISTICAL HELPERS  (identical to paired_violin_plot.py)
+# =============================================================================
+
+def paired_hedges_g(diff):
+    diff = np.asarray(diff, float)
+    n    = len(diff)
+    if n < 2:
+        return np.nan
+    d = diff.mean() / (diff.std(ddof=1) + 1e-12)
+    j = 1 - 3 / (4 * (n - 1) - 1)
+    return d * j
+
+
+def bootstrap_g_ci(diff, n_boot=N_BOOT, seed=42):
+    diff = np.asarray(diff, float)
+    n    = len(diff)
+    if n < 3:
+        return np.nan, np.nan
+    rng  = np.random.default_rng(seed)
+    boot = np.array([paired_hedges_g(diff[rng.integers(0, n, n)])
+                     for _ in range(n_boot)])
+    return float(np.nanpercentile(boot, 2.5)), float(np.nanpercentile(boot, 97.5))
+
+
+def paired_wilcoxon_test(x_ref, x_bsl):
+    diff = np.asarray(x_ref) - np.asarray(x_bsl)
+    if len(diff) < 3 or np.all(diff == 0):
+        return np.nan, np.nan
+    try:
+        stat, p = wilcoxon(x_ref, x_bsl, zero_method="pratt")
+        return stat, p
+    except Exception:
+        return np.nan, np.nan
+
+
+def concordant_discordant(x_ref, x_bsl, lower_is_better):
+    diff = np.asarray(x_ref, float) - np.asarray(x_bsl, float)
+    tol  = 1e-9
+    if lower_is_better:
+        n_plus  = int((diff < -tol).sum())
+        n_minus = int((diff >  tol).sum())
+    else:
+        n_plus  = int((diff >  tol).sum())
+        n_minus = int((diff < -tol).sum())
+    ties = int((np.abs(diff) <= tol).sum())
+    return n_plus, n_minus, ties
+
+
+def p_stars(p):
+    if np.isnan(p): return ""
+    if p < 0.0001:  return "****"
+    if p < 0.001:   return "***"
+    if p < 0.01:    return "**"
+    if p < 0.05:    return "*"
+    return "ns"
+
+# =============================================================================
+# 5. PANEL DRAWING FUNCTION
+# =============================================================================
+
+def draw_paired_panel(ax, ref_arr, bsl_arr,
+                      ref_name, bsl_name, metric_label,
+                      lower_is_better, rng,
+                      max_lines=MAX_LINES):
+    """
+    Full paired violin + box + strip + connecting lines panel.
+    Returns dict of computed statistics.
+    """
+    ref_arr = np.asarray(ref_arr, float)
+    bsl_arr = np.asarray(bsl_arr, float)
+    n       = len(ref_arr)
+    c_ref   = MODEL_COLORS.get(ref_name, "#0077BB")
+    c_bsl   = MODEL_COLORS.get(bsl_name, "#888888")
+    x_ref, x_bsl = 0, 1
+
+    # ── Violin ──
+    for xi, arr, color in [(x_ref, ref_arr, c_ref), (x_bsl, bsl_arr, c_bsl)]:
+        if len(arr) >= 4:
+            try:
+                kde  = gaussian_kde(arr, bw_method="scott")
+                y_ev = np.linspace(arr.min(), arr.max(), 300)
+                dens = kde(y_ev)
+                dens = dens / dens.max() * 0.36
+                ax.fill_betweenx(y_ev, xi - dens, xi + dens,
+                                 color=color, alpha=0.18, zorder=1)
+                ax.plot(xi - dens, y_ev, color=color, lw=0.7, alpha=0.6, zorder=2)
+                ax.plot(xi + dens, y_ev, color=color, lw=0.7, alpha=0.6, zorder=2)
+            except Exception:
+                pass
+
+    # ── Box ──
+    for xi, arr, color in [(x_ref, ref_arr, c_ref), (x_bsl, bsl_arr, c_bsl)]:
+        q25, q50, q75 = np.percentile(arr, [25, 50, 75])
+        p05, p95      = np.percentile(arr, [5,  95])
+        ax.plot([xi - 0.20, xi + 0.20], [q50, q50],
+                color=color, lw=2.4, solid_capstyle="round", zorder=6)
+        ax.add_patch(plt.Rectangle(
+            (xi - 0.15, q25), 0.30, q75 - q25,
+            facecolor=color, alpha=0.22, edgecolor=color, lw=0.9, zorder=4,
+        ))
+        ax.plot([xi, xi], [p05, q25], color=color, lw=0.8, alpha=0.6, zorder=3)
+        ax.plot([xi, xi], [q75, p95], color=color, lw=0.8, alpha=0.6, zorder=3)
+        for y_w in [p05, p95]:
+            ax.plot([xi - 0.08, xi + 0.08], [y_w, y_w],
+                    color=color, lw=0.8, alpha=0.6, zorder=3)
+
+    # ── Connecting lines ──
+    indices = np.arange(n)
+    if n > max_lines:
+        indices = rng.choice(n, max_lines, replace=False)
+        note = f"(showing {max_lines}/{n} pairs)"
+    else:
+        note = f"(n={n} pairs)"
+
+    tol = 1e-9
+    for idx in indices:
+        rv, bv = ref_arr[idx], bsl_arr[idx]
+        if lower_is_better:
+            ref_wins = rv < bv - tol
+            bsl_wins = bv < rv - tol
+        else:
+            ref_wins = rv > bv + tol
+            bsl_wins = bv > rv + tol
+        lc = WIN_COLOR if ref_wins else (LOSE_COLOR if bsl_wins else TIE_COLOR)
+        jx_r = x_ref + rng.uniform(-0.08, 0.08)
+        jx_b = x_bsl + rng.uniform(-0.08, 0.08)
+        ax.plot([jx_r, jx_b], [rv, bv],
+                color=lc, lw=0.45, alpha=0.35, zorder=3)
+
+    # ── Strip dots ──
+    for xi, arr, color in [(x_ref, ref_arr, c_ref), (x_bsl, bsl_arr, c_bsl)]:
+        jitter = rng.uniform(-0.10, 0.10, size=len(arr))
+        ax.scatter(xi + jitter, arr, color=color, s=9, alpha=0.50,
+                   edgecolors="white", linewidths=0.2, zorder=5)
+
+    # ── Statistics ──
+    _, p_val            = paired_wilcoxon_test(ref_arr, bsl_arr)
+    diff                = ref_arr - bsl_arr
+    g_diff              = -diff if lower_is_better else diff
+    g                   = paired_hedges_g(g_diff)
+    g_lo, g_hi          = bootstrap_g_ci(g_diff, N_BOOT)
+    n_plus, n_minus, ties = concordant_discordant(ref_arr, bsl_arr, lower_is_better)
+    stars               = p_stars(p_val)
+
+    # ── Significance bracket ──
+    y_max   = max(ref_arr.max(), bsl_arr.max())
+    y_min   = min(ref_arr.min(), bsl_arr.min())
+    y_range = (y_max - y_min) if y_max > y_min else 0.05
+    y_brk   = y_max + y_range * 0.08
+
+    ax.plot([x_ref, x_ref, x_bsl, x_bsl],
+            [y_brk, y_brk + y_range * 0.02,
+             y_brk + y_range * 0.02, y_brk],
+            color="#333333", lw=0.9, zorder=8)
+
+    sig_col = "#CC2222" if stars not in ("ns", "") else "#666666"
+    ax.text(0.5, y_brk + y_range * 0.04,
+            stars or "ns", ha="center", va="bottom",
+            fontsize=8, color=sig_col, fontweight="bold", zorder=9)
+    ax.text(0.5, y_brk + y_range * 0.09,
+            f"p={p_val:.4f}" if not np.isnan(p_val) else "p=n/a",
+            ha="center", va="bottom", fontsize=5.5, color="#555555", zorder=9)
+    ax.text(0.5, y_brk + y_range * 0.155,
+            f"N+={n_plus}  N−={n_minus}"
+            + (f"  ties={ties}" if ties else ""),
+            ha="center", va="bottom", fontsize=5.5, color="#333333", zorder=9)
+
+    # ── Inset stats box ──
+    ref_med = float(np.median(ref_arr))
+    bsl_med = float(np.median(bsl_arr))
+    ref_iqr = float(np.subtract(*np.percentile(ref_arr, [75, 25])))
+    bsl_iqr = float(np.subtract(*np.percentile(bsl_arr, [75, 25])))
+    g_str   = (f"{g:+.2f} [{g_lo:+.2f},{g_hi:+.2f}]"
+               if not np.isnan(g) else "n/a")
+
+    stats_txt = (
+        f"{'Model':<9} {'Med':>6}  {'IQR':>6}\n"
+        f"{'─'*26}\n"
+        f"{'★'+ref_name:<9} {ref_med:>6.4f}  {ref_iqr:>6.4f}\n"
+        f"{bsl_name:<9} {bsl_med:>6.4f}  {bsl_iqr:>6.4f}\n"
+        f"{'─'*26}\n"
+        f"g = {g_str}\n"
+        f"{note}"
+    )
+    ax.text(1.04, 0.99, stats_txt,
+            transform=ax.transAxes, va="top", ha="left",
+            fontsize=5.0, fontfamily="monospace", color="#222222",
+            bbox=dict(boxstyle="round,pad=0.3", facecolor="white",
+                      edgecolor="#cccccc", lw=0.5, alpha=0.90),
+            zorder=10, clip_on=False)
+
+    # ── Axis ──
+    ax.set_xticks([x_ref, x_bsl])
+    ax.set_xticklabels(
+        [f"{'★ ' if ref_name == REFERENCE_MODEL else ''}{ref_name}", bsl_name],
+        fontsize=7,
+    )
+    ax.set_xlim(-0.55, 1.55)
+    ax.set_ylim(y_min - y_range * 0.08, y_brk + y_range * 0.30)
+    ax.set_ylabel(metric_label, fontsize=8)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.spines["left"].set_linewidth(0.5)
+    ax.spines["bottom"].set_linewidth(0.5)
+    ax.tick_params(axis="y", labelsize=7)
+    ax.tick_params(axis="x", length=0)
+    ax.grid(axis="y", linewidth=0.3, color="#eeeeee", zorder=0)
+
+    return dict(
+        p_val=p_val, stars=stars, g=g, g_lo=g_lo, g_hi=g_hi,
+        n_pairs=n, n_plus=n_plus, n_minus=n_minus, ties=ties,
+        ref_median=ref_med, bsl_median=bsl_med,
+        ref_iqr=ref_iqr, bsl_iqr=bsl_iqr,
+    )
+
+# =============================================================================
+# 6. HELPER: get metric column for a given metric name
+# =============================================================================
+
+def get_metric_series(df_model_cls, metric):
+    """
+    Return a Series of metric values for one (model, class) slice.
+    Handles both direct column reads and derived FNR.
+    """
+    cfg = METRIC_CONFIG[metric]
+    if cfg["source"] == "derived":
+        # FNR = FN / (FN + TP)
+        if "FN" in df_model_cls.columns and "TP" in df_model_cls.columns:
+            fn   = pd.to_numeric(df_model_cls["FN"], errors="coerce")
+            tp   = pd.to_numeric(df_model_cls["TP"], errors="coerce")
+            denom = fn + tp
+            return np.where(denom > 0, fn / denom, np.nan)
+        return np.full(len(df_model_cls), np.nan)
+    else:
+        col = cfg["col"]
+        if col not in df_model_cls.columns:
+            return np.full(len(df_model_cls), np.nan)
+        return pd.to_numeric(df_model_cls[col], errors="coerce").values
+
+# =============================================================================
+# 7. MAIN LOOP — one figure per class
+# =============================================================================
+
+rng = np.random.default_rng(42)
+summary_records = []
+
+ref_df = df_all[df_all["Model"] == REFERENCE_MODEL]
+
+# Direction label per metric
+DIRECTION = {
+    m: ("↓ lower = better" if METRIC_CONFIG[m]["lower_is_better"]
+        else "↑ higher = better")
+    for m in PLOT_METRICS
+}
+
+for cls in classes:
+    n_baselines = len(baselines)
+    n_metrics   = len(PLOT_METRICS)
+
+    PANEL_W = 2.8
+    PANEL_H = 3.6
+    FIG_W   = n_metrics * (PANEL_W + 1.5) + 0.6
+    FIG_H   = n_baselines * PANEL_H + 2.0
+
+    fig, axes = plt.subplots(
+        n_baselines, n_metrics,
+        figsize=(FIG_W, FIG_H),
+        squeeze=False,
+    )
+
+    # Column headers (first row only)
+    for ci, metric in enumerate(PLOT_METRICS):
+        axes[0][ci].set_title(
+            f"{metric}\n{DIRECTION[metric]}",
+            fontsize=8.5, fontweight="bold", pad=6,
+        )
+
+    for ri, baseline in enumerate(baselines):
+        bsl_df = df_all[df_all["Model"] == baseline]
+
+        for ci, metric in enumerate(PLOT_METRICS):
+            ax        = axes[ri][ci]
+            lower_b   = METRIC_CONFIG[metric]["lower_is_better"]
+
+            # ── Reference values ──
+            ref_cls = ref_df[ref_df["Class_Name"] == cls][
+                ["Filename"] + [c for c in ["TP","TN","FP","FN"] if c in ref_df.columns]
+            ].copy()
+            ref_cls["_metric"] = get_metric_series(
+                ref_df[ref_df["Class_Name"] == cls].reset_index(drop=True),
+                metric
+            )
+            ref_cls = ref_cls[["Filename", "_metric"]].dropna()
+
+            # ── Baseline values ──
+            bsl_cls = bsl_df[bsl_df["Class_Name"] == cls].copy().reset_index(drop=True)
+            bsl_cls["_metric"] = get_metric_series(bsl_cls, metric)
+            bsl_cls = bsl_cls[["Filename", "_metric"]].dropna()
+
+            # ── Paired merge ──
+            merged = pd.merge(
+                ref_cls.rename(columns={"_metric": "ref"}),
+                bsl_cls.rename(columns={"_metric": "bsl"}),
+                on="Filename",
+            ).dropna()
+            merged = merged[
+                np.isfinite(merged["ref"]) & np.isfinite(merged["bsl"])
+            ]
+
+            if len(merged) < 3:
+                ax.text(0.5, 0.5, "Insufficient\npaired data",
+                        ha="center", va="center", fontsize=8,
+                        color="#aaaaaa", transform=ax.transAxes)
+                ax.axis("off")
+                continue
+
+            out = draw_paired_panel(
+                ax,
+                ref_arr  = merged["ref"].values,
+                bsl_arr  = merged["bsl"].values,
+                ref_name = REFERENCE_MODEL,
+                bsl_name = baseline,
+                metric_label = metric,
+                lower_is_better = lower_b,
+                rng      = rng,
+            )
+
+            # Only show metric title on first baseline row
+            if ri > 0:
+                ax.set_title("")
+
+            summary_records.append({
+                "Class":              cls,
+                "Metric":             metric,
+                "Baseline":           baseline,
+                "N_pairs":            out["n_pairs"],
+                "Ref_median":         round(out["ref_median"], 5),
+                "Bsl_median":         round(out["bsl_median"], 5),
+                "Ref_IQR":            round(out["ref_iqr"],    5),
+                "Bsl_IQR":            round(out["bsl_iqr"],    5),
+                "N_plus_ref_wins":    out["n_plus"],
+                "N_minus_bsl_wins":   out["n_minus"],
+                "Ties":               out["ties"],
+                "Win_pct_ref":        round(100 * out["n_plus"] /
+                                            max(out["n_pairs"], 1), 1),
+                "Paired_Wilcoxon_p":  round(out["p_val"], 5)
+                                      if not np.isnan(out["p_val"]) else np.nan,
+                "Stars":              out["stars"],
+                "Hedges_g":           round(out["g"],    3) if not np.isnan(out["g"])    else np.nan,
+                "g_CI_lo":            round(out["g_lo"], 3) if not np.isnan(out["g_lo"]) else np.nan,
+                "g_CI_hi":            round(out["g_hi"], 3) if not np.isnan(out["g_hi"]) else np.nan,
+            })
+
+    # ── Legend ──
+    handles = [
+        mlines.Line2D([0],[0], color=MODEL_COLORS.get(REFERENCE_MODEL,"#0077BB"),
+                      lw=2.0, label=f"★ {REFERENCE_MODEL}"),
+    ] + [
+        mlines.Line2D([0],[0], color=MODEL_COLORS.get(b,"#888888"),
+                      lw=2.0, label=b)
+        for b in baselines
+    ] + [
+        mlines.Line2D([0],[0], color=WIN_COLOR,  lw=1.0, alpha=0.7,
+                      label=f"{REFERENCE_MODEL} wins (red)"),
+        mlines.Line2D([0],[0], color=LOSE_COLOR, lw=1.0, alpha=0.7,
+                      label="Baseline wins (blue)"),
+        mlines.Line2D([0],[0], color=TIE_COLOR,  lw=1.0, alpha=0.7,
+                      label="Tie (grey)"),
+    ]
+    fig.legend(handles=handles, loc="lower center",
+               ncol=len(handles), frameon=False,
+               fontsize=7.5, bbox_to_anchor=(0.5, -0.01))
+
+    fig.suptitle(
+        f"Paired violin + box — classification metrics — {cls}\n"
+        f"Red line = {REFERENCE_MODEL} wins that patient  |  Blue = baseline wins  |  "
+        f"Bracket: paired Wilcoxon  |  N+ / N− = concordant / discordant  |  g = Hedges' g",
+        fontsize=9, fontweight="bold", y=1.002,
+    )
+    plt.tight_layout(w_pad=3.5, h_pad=1.5, rect=[0, 0.04, 1, 0.998])
+
+    safe_cls = cls.replace(" ", "_")
+    png_path = os.path.join(SAVE_DIR, f"PairedViolin_ClassMetrics_{safe_cls}.png")
+    pdf_path = os.path.join(SAVE_DIR, f"PairedViolin_ClassMetrics_{safe_cls}.pdf")
+    plt.savefig(png_path, dpi=600, bbox_inches="tight", facecolor="white")
+    plt.savefig(pdf_path, format="pdf", bbox_inches="tight", facecolor="white")
+    plt.show()
+    print(f"Saved → {png_path}")
+
+# =============================================================================
+# 8. SUMMARY HEATMAP — signed median difference across all classes × metrics
+# =============================================================================
+
+df_sum = pd.DataFrame(summary_records)
+
+# Sign-flip so that positive ALWAYS means reference model is better
+df_sum["Med_diff_signed"] = df_sum.apply(
+    lambda r: (r["Ref_median"] - r["Bsl_median"])
+              * (-1 if METRIC_CONFIG[r["Metric"]]["lower_is_better"] else 1),
+    axis=1,
+)
+
+row_labels = [f"{cls}\nvs {bsl}" for cls in classes for bsl in baselines]
+n_rows_h   = len(row_labels)
+
+diff_mat = np.full((n_rows_h, len(PLOT_METRICS)), np.nan)
+star_mat = [[""] * len(PLOT_METRICS) for _ in range(n_rows_h)]
+g_mat    = np.full((n_rows_h, len(PLOT_METRICS)), np.nan)
+
+for ri, (cls, bsl) in enumerate([(c, b) for c in classes for b in baselines]):
+    sub = df_sum[(df_sum["Class"] == cls) & (df_sum["Baseline"] == bsl)]
+    for ci, metric in enumerate(PLOT_METRICS):
+        row = sub[sub["Metric"] == metric]
+        if row.empty:
+            continue
+        diff_mat[ri, ci] = row.iloc[0]["Med_diff_signed"]
+        star_mat[ri][ci] = row.iloc[0]["Stars"]
+        g_mat[ri, ci]    = row.iloc[0]["Hedges_g"]
+
+v_abs = np.nanmax(np.abs(diff_mat)) if np.any(np.isfinite(diff_mat)) else 0.01
+
+FIG_SUM_W = len(PLOT_METRICS) * 2.0 + 3.5
+FIG_SUM_H = max(6, n_rows_h * 0.55 + 2.0)
+fig_s, ax_s = plt.subplots(figsize=(FIG_SUM_W, FIG_SUM_H))
+
+norm_s = TwoSlopeNorm(vmin=-v_abs, vcenter=0, vmax=v_abs)
+im_s   = ax_s.imshow(diff_mat, cmap=plt.cm.RdBu, norm=norm_s, aspect="auto")
+
+for ri in range(n_rows_h):
+    for ci, metric in enumerate(PLOT_METRICS):
+        v  = diff_mat[ri, ci]
+        st = star_mat[ri][ci]
+        g  = g_mat[ri, ci]
+        if np.isnan(v):
+            ax_s.text(ci, ri, "—", ha="center", va="center",
+                      fontsize=7, color="#aaaaaa")
+            continue
+        txt_col = "white" if abs(v) > v_abs * 0.6 else "#111111"
+        ax_s.text(ci, ri - 0.15, f"{v:+.4f}",
+                  ha="center", va="center",
+                  fontsize=7, color=txt_col, fontweight="bold")
+        parts = []
+        if st and st != "ns":
+            parts.append(st)
+        if not np.isnan(g):
+            parts.append(f"g={g:+.2f}")
+        if parts:
+            ax_s.text(ci, ri + 0.25, "  ".join(parts),
+                      ha="center", va="center", fontsize=5.2, color=txt_col)
+
+# Class group separators
+for gi in range(len(classes)):
+    y_sep = gi * len(baselines) - 0.5
+    if y_sep > -0.5:
+        ax_s.axhline(y_sep, color="#333333", lw=1.0, zorder=5)
+for k in range(len(PLOT_METRICS) + 1):
+    ax_s.axvline(k - 0.5, color="#cccccc", lw=0.4)
+for k in range(n_rows_h + 1):
+    ax_s.axhline(k - 0.5, color="#cccccc", lw=0.4)
+
+ax_s.set_xticks(range(len(PLOT_METRICS)))
+ax_s.set_xticklabels(PLOT_METRICS, fontsize=9, fontweight="bold")
+ax_s.set_yticks(range(n_rows_h))
+ax_s.set_yticklabels(row_labels, fontsize=7)
+ax_s.set_title(
+    f"Summary — signed median difference  ({REFERENCE_MODEL} − baseline)\n"
+    "Red = reference model better  |  Blue = baseline better  |  "
+    "Value = Δmedian  |  Stars = paired Wilcoxon  |  g = Hedges' g\n"
+    "(lower-is-better metrics sign-flipped so red = better always)",
+    fontsize=9, fontweight="bold", pad=6,
+)
+ax_s.tick_params(length=0)
+cb_s = plt.colorbar(im_s, ax=ax_s, fraction=0.025, pad=0.03)
+cb_s.ax.tick_params(labelsize=7.5)
+cb_s.set_label(f"{REFERENCE_MODEL} better → / ← baseline better", fontsize=7.5)
+
+plt.tight_layout()
+sum_png = os.path.join(SAVE_DIR, "PairedViolin_ClassMetrics_SummaryHeatmap.png")
+sum_pdf = os.path.join(SAVE_DIR, "PairedViolin_ClassMetrics_SummaryHeatmap.pdf")
+plt.savefig(sum_png, dpi=600, bbox_inches="tight", facecolor="white")
+plt.savefig(sum_pdf, format="pdf", bbox_inches="tight", facecolor="white")
+plt.show()
+print(f"Saved summary heatmap → {sum_png}")
+
+# =============================================================================
+# 9. EXCEL TABLE
+# =============================================================================
+
+stats_path = os.path.join(SAVE_DIR, "PairedViolin_ClassMetrics_Statistics.xlsx")
+
+with pd.ExcelWriter(stats_path, engine="openpyxl") as writer:
+    df_sum.to_excel(writer, index=False, sheet_name="PairedStats")
+
+    ws = writer.sheets["PairedStats"]
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
+    thin     = Border(**{s: Side(style="thin", color="CCCCCC")
+                         for s in ("left","right","top","bottom")})
+    hdr_fill = PatternFill("solid", fgColor="1F4E79")
+    hdr_font = Font(bold=True, color="FFFFFF", size=8, name="Helvetica")
+    sig_fill = PatternFill("solid", fgColor="D5E8D4")
+    ns_fill  = PatternFill("solid", fgColor="F8F8F8")
+    alt_fill = PatternFill("solid", fgColor="EBF3FB")
+    warn_fill= PatternFill("solid", fgColor="FFE6CC")
+
+    for cell in ws[1]:
+        cell.fill = hdr_fill; cell.font = hdr_font
+        cell.alignment = Alignment(horizontal="center"); cell.border = thin
+
+    for row_idx, (_, row) in enumerate(df_sum.iterrows(), start=2):
+        stars   = row.get("Stars", "")
+        win_pct = row.get("Win_pct_ref", 50)
+        if stars not in ("ns", "", None) and not pd.isna(stars):
+            fill = sig_fill if win_pct >= 50 else warn_fill
+        else:
+            fill = alt_fill if row_idx % 2 == 0 else ns_fill
+        for cell in ws[row_idx]:
+            cell.border    = thin
+            cell.alignment = Alignment(horizontal="center")
+            cell.font      = Font(size=8, name="Helvetica")
+            cell.fill      = fill
+    for col in ws.columns:
+        ws.column_dimensions[col[0].column_letter].width = 16
+
+print(f"Statistics saved → {stats_path}")
+
+# =============================================================================
+# 10. CONSOLE REPORT
+# =============================================================================
+
+print("\n" + "=" * 80)
+print(f"PAIRED CLASSIFICATION METRICS REPORT  ({REFERENCE_MODEL} vs baselines)")
+print("=" * 80)
+for metric in PLOT_METRICS:
+    print(f"\n{metric}  ({'↓ lower better' if METRIC_CONFIG[metric]['lower_is_better'] else '↑ higher better'}):")
+    sub = df_sum[df_sum["Metric"] == metric]
+    print(f"  {'Class':<22} {'Baseline':<12} {'N':>5} {'N+':>5} "
+          f"{'N−':>5} {'Win%':>7} {'p':>10} {'g':>8}  Sig")
+    print("  " + "-" * 78)
+    for _, row in sub.sort_values(["Class", "Baseline"]).iterrows():
+        print(
+            f"  {row['Class']:<22} {row['Baseline']:<12} "
+            f"{int(row['N_pairs']):>5} "
+            f"{int(row['N_plus_ref_wins']):>5} "
+            f"{int(row['N_minus_bsl_wins']):>5} "
+            f"{row['Win_pct_ref']:>6.1f}% "
+            f"{str(row.get('Paired_Wilcoxon_p','—')):>10} "
+            f"{str(row.get('Hedges_g','—')):>8}  "
+            f"{row['Stars']}"
+        )
+
+print(f"\nAll outputs in: {SAVE_DIR}")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# =============================================================================
+# COMPLETE STATISTICAL ANALYSIS OF SEGMENTATION METRICS
+# WITH:
+# - Wilcoxon Signed-Rank Test
+# - Cohen's d
+# - Hedges g
+# - Rank-Biserial Correlation
+# - TNR (True Negative Rate)
+# - FNR (False Negative Rate)
+# =============================================================================
+
+import pandas as pd
+import numpy as np
+from scipy.stats import wilcoxon
+import os
+import warnings
+
+warnings.filterwarnings("ignore")
+
+# =============================================================================
+# 1. CONFIGURATION
+# =============================================================================
+
+excel_files = [
+    ("BAT-RM",    r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/200 Epochs/segmentation_metrics_enhanced_200_epoch_enhanced.xlsx'),
+    ("nnUNet",    r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/134 epochs/segmentation_metrics_detailed_epoch_134_generated.xlsx'),
+    ("SegMamba",  r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/UNET3+_segmentation_metrics_detailed_epoch_200_generated.xlsx'),
+    ("TransUNet", r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/vanilla_unet_segmentation_metrics_detailed_epoch_200_generated.xlsx'),
+    ("UNETR",     r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/nnUNet_256/Segmentation_Cervix_small_Axial_axis_pytorch_detailed_metrics_Generated.xlsx'),
+]
+
+# =============================================================================
+# METRICS
+# =============================================================================
+
+METRICS = [
+    "Dice",
+    "IoU",
+    "F1_Score",
+    "Recall",
+    "Specificity",
+    "True_Positive_Rate",
+    "False_Positive_Rate",
+    "True_Negative_Rate",
+    "False_Negative_Rate"
+]
+
+SAVE_PATH = (
+    r'I:/Radiotherapy/Cervix/Paper/Result/Quantitative/final/'
+    r'segmentation_metrics/Complete_Statistical_Analysis_segmentation_metrics.xlsx'
+)
+
+os.makedirs(os.path.dirname(SAVE_PATH), exist_ok=True)
+
+# =============================================================================
+# 2. HELPER FUNCTIONS
+# =============================================================================
+
+def get_stars(p):
+    if pd.isna(p):
+        return "ns"
+
+    if p < 0.0001:
+        return "****"
+
+    if p < 0.001:
+        return "***"
+
+    if p < 0.01:
+        return "**"
+
+    if p < 0.05:
+        return "*"
+
+    return "ns"
+
+
+def cohens_d_hedges_g(x, y):
+
+    nx, ny = len(x), len(y)
+
+    dof = nx + ny - 2
+
+    if dof <= 0:
+        return np.nan, np.nan
+
+    std_x = np.std(x, ddof=1)
+    std_y = np.std(y, ddof=1)
+
+    pooled_std = np.sqrt(
+        ((nx - 1) * (std_x ** 2) +
+         (ny - 1) * (std_y ** 2)) / dof
+    )
+
+    if pooled_std == 0:
+        d = 0.0
+    else:
+        d = (np.mean(x) - np.mean(y)) / pooled_std
+
+    g = d * (1 - (3 / (4 * dof - 1)))
+
+    return d, g
+
+
+def rank_biserial(stat_w, diffs):
+
+    n = (diffs != 0).sum()
+
+    if n == 0:
+        return np.nan
+
+    return 1 - (2 * stat_w) / (n * (n + 1))
+
+
+def interpret_r(r):
+
+    if pd.isna(r):
+        return "N/A"
+
+    r = abs(r)
+
+    if r < 0.10:
+        return "Negligible"
+
+    if r < 0.30:
+        return "Small"
+
+    if r < 0.50:
+        return "Medium"
+
+    return "Large"
+
+
+def interpret_d(d):
+
+    if pd.isna(d):
+        return "N/A"
+
+    d = abs(d)
+
+    if d < 0.20:
+        return "Negligible"
+
+    if d < 0.50:
+        return "Small"
+
+    if d < 0.80:
+        return "Medium"
+
+    return "Large"
+
+
+# =============================================================================
+# 3. LOAD ALL DATA
+# =============================================================================
+
+model_names = [x[0] for x in excel_files]
+
 all_data = []
+
 for name, path in excel_files:
-    df = pd.concat(pd.read_excel(path, sheet_name=None), ignore_index=True)
-    df[METRIC]       = pd.to_numeric(df[METRIC], errors='coerce')
-    df               = df.dropna(subset=[METRIC])
-    df["Class_Name"] = df["Class_Name"].astype(str).str.upper().str.strip()
-    df = df[~df["Class_Name"].isin(["BACKGROUND", "NAN", "NONE", "", "0"])]
-    df["Model"]      = name
-    all_data.append(df[["Filename", "Class_Name", METRIC, "Model"]])
+
+    print(f"Loading: {name}")
+
+    # ---------------------------------------------------------
+    # Load all sheets
+    # ---------------------------------------------------------
+
+    df = pd.concat(
+        pd.read_excel(path, sheet_name=None),
+        ignore_index=True
+    )
+
+    # ---------------------------------------------------------
+    # Convert metric columns to numeric
+    # ---------------------------------------------------------
+
+    numeric_cols = [
+        "TP", "TN", "FP", "FN",
+        "Dice", "IoU", "F1_Score",
+        "Recall", "Specificity",
+        "True_Positive_Rate",
+        "False_Positive_Rate"
+    ]
+
+    for col in numeric_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+
+    # ---------------------------------------------------------
+    # Compute TNR = TN / (TN + FP)
+    # ---------------------------------------------------------
+
+    df["True_Negative_Rate"] = np.where(
+        (df["TN"] + df["FP"]) > 0,
+        df["TN"] / (df["TN"] + df["FP"]),
+        np.nan
+    )
+
+    # ---------------------------------------------------------
+    # Compute FNR = FN / (FN + TP)
+    # ---------------------------------------------------------
+
+    df["False_Negative_Rate"] = np.where(
+        (df["FN"] + df["TP"]) > 0,
+        df["FN"] / (df["FN"] + df["TP"]),
+        np.nan
+    )
+
+    # ---------------------------------------------------------
+    # Clean class names
+    # ---------------------------------------------------------
+
+    df["Class_Name"] = (
+        df["Class_Name"]
+        .astype(str)
+        .str.upper()
+        .str.strip()
+    )
+
+    # ---------------------------------------------------------
+    # Remove background
+    # ---------------------------------------------------------
+
+    df = df[
+        ~df["Class_Name"].isin(
+            ["BACKGROUND", "NAN", "NONE", "", "0"]
+        )
+    ]
+
+    # ---------------------------------------------------------
+    # Add model name
+    # ---------------------------------------------------------
+
+    df["Model"] = name
+
+    # ---------------------------------------------------------
+    # Keep required columns
+    # ---------------------------------------------------------
+
+    keep_cols = (
+        ["Filename", "Class_Name", "Model"] +
+        [m for m in METRICS if m in df.columns]
+    )
+
+    df = df[keep_cols]
+
+    all_data.append(df)
+
+# =============================================================================
+# CONCATENATE ALL MODELS
+# =============================================================================
 
 df_main = pd.concat(all_data, ignore_index=True)
 
-# =============================================================================
-# 4. AGGREGATE: build Model × Class pivot (rows = models, cols = classes)
-# =============================================================================
+classes = sorted(df_main["Class_Name"].unique())
 
-pivot = (
-    df_main
-    .groupby(["Model", "Class_Name"])[METRIC]
-    .agg(AGG_FN)
-    .unstack("Class_Name")
-    .dropna(axis=1, how="all")
-    .fillna(0)   # missing class → 0 so the polygon closes cleanly
-)
-
-# Keep only models present in the pivot (handles missing files gracefully)
-model_names = [m for m, _ in excel_files if m in pivot.index]
-classes     = list(pivot.columns)
-N           = len(classes)
+print("\nClasses Found:")
+print(classes)
 
 # =============================================================================
-# 5. RADAR GEOMETRY HELPERS
+# 4. COMPUTE STATISTICS
 # =============================================================================
 
-def radar_angles(n):
-    """Return N evenly-spaced angles starting at top (−π/2), clockwise."""
-    angles = np.linspace(0, 2 * np.pi, n, endpoint=False)
-    return angles - np.pi / 2          # rotate so first spoke points up
+metric_results = {m: [] for m in METRICS}
 
+ref_name = model_names[0]
 
-def close_polygon(values, angles):
-    """Append the first element to close the radar polygon."""
-    return (
-        np.concatenate([values, [values[0]]]),
-        np.concatenate([angles, [angles[0]]]),
-    )
+for metric in METRICS:
 
+    print(f"\nProcessing Metric: {metric}")
 
-angles = radar_angles(N)
+    for cls in classes:
 
-# =============================================================================
-# 6. FIGURE LAYOUT
-# =============================================================================
-# Nature Medicine single-column width ≈ 8.9 cm; two-column ≈ 18.3 cm.
-# We use 18 cm wide so the radar is large enough to be readable.
-# =============================================================================
+        # -----------------------------------------------------
+        # Reference model
+        # -----------------------------------------------------
 
-FIG_W  = 7.09    # inches (≈ 18 cm, two-column)
-FIG_H  = 6.30    # inches (≈ 16 cm)
+        ref_data = df_main[
+            (df_main["Model"] == ref_name) &
+            (df_main["Class_Name"] == cls)
+        ][["Filename", metric]].dropna(subset=[metric])
 
-fig = plt.figure(figsize=(FIG_W, FIG_H))
+        # -----------------------------------------------------
+        # Compare against other models
+        # -----------------------------------------------------
 
-# Main radar axes — polar, centred, leaving room for legend on the right
-ax = fig.add_axes(
-    [0.08, 0.10, 0.62, 0.80],   # [left, bottom, width, height] in figure fraction
-    projection="polar"
-)
+        for other in model_names[1:]:
 
-# =============================================================================
-# 7. POLAR AXES STYLING
-# =============================================================================
+            other_data = df_main[
+                (df_main["Model"] == other) &
+                (df_main["Class_Name"] == cls)
+            ][["Filename", metric]].dropna(subset=[metric])
 
-ax.set_theta_zero_location("N")       # 0° at top
-ax.set_theta_direction(-1)            # clockwise (matches anatomical convention)
+            # -------------------------------------------------
+            # Pair by filename
+            # -------------------------------------------------
 
-# --- Radial grid rings ---
-ax.set_rgrids(
-    GRID_LEVELS,
-    labels=[f"{v:.1f}" for v in GRID_LEVELS],
-    angle=225,                        # label position (bottom-left, out of the way)
-    fontsize=7,
-    color="#888888",
-)
-ax.set_rlabel_position(225)
-ax.set_ylim(0, 1.0)
+            merged = pd.merge(
+                ref_data,
+                other_data,
+                on="Filename",
+                suffixes=('_ref', '_other')
+            ).dropna()
 
-# --- Spoke labels (class names) ---
-ax.set_thetagrids(
-    np.degrees(angles + np.pi / 2),   # undo the −π/2 shift for thetagrids
-    labels=classes,
-    fontsize=8.5,
-    fontweight="normal",
-)
+            x = merged[f"{metric}_ref"].values
+            y = merged[f"{metric}_other"].values
 
-# Adjust label distance and alignment for each spoke
-for label, angle_rad in zip(ax.get_xticklabels(), angles):
-    angle_deg = np.degrees(angle_rad)
-    # Push labels away from the centre
-    label.set_fontsize(8.5)
-    label.set_color("#333333")
-    # Align based on position
-    if   angle_deg < -135 or angle_deg > 135:
-        label.set_horizontalalignment("center")
-    elif angle_deg < 0:
-        label.set_horizontalalignment("right")
-    else:
-        label.set_horizontalalignment("left")
+            diff = x - y
 
-# --- Grid line aesthetics ---
-ax.yaxis.grid(True, linestyle="--", linewidth=0.4, color="#bbbbbb", alpha=0.7)
-ax.xaxis.grid(True, linestyle="-",  linewidth=0.4, color="#cccccc", alpha=0.5)
+            N = len(merged)
 
-# --- Remove outermost spine (cleaner look) ---
-ax.spines["polar"].set_visible(False)
+            # -------------------------------------------------
+            # Default values
+            # -------------------------------------------------
 
-# Background: very faint concentric fill for alternating rings (like Nature figures)
-for i in range(len(GRID_LEVELS) - 1, -1, -1):
-    facecolor = "#f7f7f7" if i % 2 == 0 else "white"
-    ax.fill_between(
-        np.linspace(0, 2 * np.pi, 300),
-        GRID_LEVELS[i - 1] if i > 0 else 0,
-        GRID_LEVELS[i],
-        color=facecolor,
-        zorder=0,
-    )
+            p = np.nan
+            stat_w = np.nan
+            cohen_d = np.nan
+            hedges_g_val = np.nan
+            r_rb = np.nan
 
-# =============================================================================
-# 8. PLOT EACH MODEL
-# =============================================================================
+            # -------------------------------------------------
+            # Statistical tests
+            # -------------------------------------------------
 
-for model in model_names:
-    values       = pivot.loc[model, classes].values.astype(float)
-    color        = MODEL_COLORS[model]
-    marker       = MODEL_MARKERS[model]
-    vals_closed, ang_closed = close_polygon(values, angles)
+            if N > 2:
 
-    # --- Filled polygon (very transparent) ---
-    ax.fill(
-        ang_closed, vals_closed,
-        color=color, alpha=FILL_ALPHA,
-        zorder=2,
-    )
+                if not (diff == 0).all():
 
-    # --- Polygon outline ---
-    ax.plot(
-        ang_closed, vals_closed,
-        color=color,
-        linewidth=1.6,
-        linestyle="-",
-        zorder=3,
-    )
+                    try:
+                        stat_w, p = wilcoxon(
+                            x,
+                            y,
+                            zero_method='pratt'
+                        )
 
-    # --- Markers at each spoke vertex ---
-    ax.scatter(
-        angles, values,
-        color=color,
-        marker=marker,
-        s=28,
-        zorder=4,
-        linewidths=0.6,
-        edgecolors="white",
-    )
+                        r_rb = rank_biserial(stat_w, diff)
 
-# =============================================================================
-# 9. LEGEND  (outside the radar, right side — Nature style)
-# =============================================================================
+                    except:
+                        pass
 
-legend_handles = []
-for model in model_names:
-    handle = Line2D(
-        [0], [0],
-        color=MODEL_COLORS[model],
-        linewidth=1.6,
-        marker=MODEL_MARKERS[model],
-        markersize=5,
-        markerfacecolor=MODEL_COLORS[model],
-        markeredgecolor="white",
-        markeredgewidth=0.5,
-        label=model,
-    )
-    legend_handles.append(handle)
+                try:
+                    cohen_d, hedges_g_val = cohens_d_hedges_g(x, y)
+                except:
+                    pass
 
-legend = fig.legend(
-    handles     = legend_handles,
-    loc         = "center right",
-    bbox_to_anchor = (1.01, 0.50),
-    frameon     = False,           # no box — Nature style
-    title       = "Model",
-    title_fontsize = 9,
-    fontsize    = 8.5,
-    handlelength   = 2.0,
-    handleheight   = 0.8,
-    borderpad   = 0.5,
-    labelspacing   = 0.6,
-)
-legend.get_title().set_fontweight("bold")
+            # -------------------------------------------------
+            # Store results
+            # -------------------------------------------------
 
-# =============================================================================
-# 10. FIGURE TITLE & SUBTITLE
-# =============================================================================
-# Nature Medicine: brief, informative title in sentence case.
-# Panel label "a" bottom-left for multi-panel figures (comment out if not needed).
-# =============================================================================
+            metric_results[metric].append({
 
-fig.text(
-    0.08, 0.96,
-    f"Comparative {METRIC} performance across anatomical classes",
-    fontsize=10, fontweight="bold", va="top", ha="left",
-    color="#111111",
-)
-fig.text(
-    0.08, 0.915,
-    f"{AGG_FN.capitalize()} per-patient {METRIC} | n = {df_main['Filename'].nunique()} scans",
-    fontsize=8, va="top", ha="left",
-    color="#555555",
-)
+                "Class": cls,
 
-# Panel label (uncomment if this is panel 'a' of a multi-panel figure)
-# fig.text(0.01, 0.99, "a", fontsize=12, fontweight="bold", va="top", ha="left")
+                "Comparison":
+                    f"{ref_name} vs {other}",
+
+                "N_paired": N,
+
+                # ---------------------------------------------
+                # Reference stats
+                # ---------------------------------------------
+
+                "Ref_mean":
+                    np.mean(x) if N > 0 else np.nan,
+
+                "Ref_std":
+                    np.std(x, ddof=1) if N > 1 else np.nan,
+
+                "Ref_median":
+                    np.median(x) if N > 0 else np.nan,
+
+                # ---------------------------------------------
+                # Other model stats
+                # ---------------------------------------------
+
+                "Other_mean":
+                    np.mean(y) if N > 0 else np.nan,
+
+                "Other_std":
+                    np.std(y, ddof=1) if N > 1 else np.nan,
+
+                "Other_median":
+                    np.median(y) if N > 0 else np.nan,
+
+                # ---------------------------------------------
+                # Differences
+                # ---------------------------------------------
+
+                "Mean_difference":
+                    np.mean(diff) if N > 0 else np.nan,
+
+                # ---------------------------------------------
+                # Wilcoxon
+                # ---------------------------------------------
+
+                "Wilcoxon_statistic":
+                    stat_w,
+
+                "P_value":
+                    p,
+
+                "Significance":
+                    get_stars(p),
+
+                # ---------------------------------------------
+                # Effect sizes
+                # ---------------------------------------------
+
+                "Cohens_d":
+                    cohen_d,
+
+                "Cohens_d_interp":
+                    interpret_d(cohen_d),
+
+                "Hedges_g":
+                    hedges_g_val,
+
+                "Rank_biserial_r":
+                    r_rb,
+
+                "Rank_biserial_interp":
+                    interpret_r(r_rb),
+
+                # ---------------------------------------------
+                # Ties
+                # ---------------------------------------------
+
+                "Ties":
+                    int((diff == 0).sum())
+            })
 
 # =============================================================================
-# 11. SAVE  (PNG 600 DPI + vector PDF)
+# 5. WRITE RESULTS TO EXCEL
 # =============================================================================
 
-png_path = os.path.join(SAVE_DIR, f"{METRIC}_Radar_NatureMedicine.png")
-pdf_path = os.path.join(SAVE_DIR, f"{METRIC}_Radar_NatureMedicine.pdf")
+with pd.ExcelWriter(SAVE_PATH, engine='openpyxl') as writer:
 
-plt.savefig(png_path, dpi=600, bbox_inches="tight", facecolor="white")
-plt.savefig(pdf_path, format="pdf",  bbox_inches="tight", facecolor="white")
-plt.show()
+    for metric in METRICS:
 
-print(f"Radar plot saved →\n  {png_path}\n  {pdf_path}")
+        print(f"Saving sheet: {metric}")
+
+        df_out = pd.DataFrame(metric_results[metric])
+
+        # -----------------------------------------------------
+        # Column Order
+        # -----------------------------------------------------
+
+        col_order = [
+
+            "Class",
+            "Comparison",
+            "N_paired",
+
+            "Ref_mean",
+            "Ref_std",
+            "Ref_median",
+
+            "Other_mean",
+            "Other_std",
+            "Other_median",
+
+            "Mean_difference",
+
+            "Wilcoxon_statistic",
+            "P_value",
+            "Significance",
+
+            "Cohens_d",
+            "Cohens_d_interp",
+
+            "Hedges_g",
+
+            "Rank_biserial_r",
+            "Rank_biserial_interp",
+
+            "Ties"
+        ]
+
+        df_out = df_out[
+            [c for c in col_order if c in df_out.columns]
+        ]
+
+        # -----------------------------------------------------
+        # Excel sheet name
+        # -----------------------------------------------------
+
+        sheet_name = metric[:31]
+
+        df_out.to_excel(
+            writer,
+            sheet_name=sheet_name,
+            index=False
+        )
+
+        # -----------------------------------------------------
+        # Auto column width
+        # -----------------------------------------------------
+
+        ws = writer.sheets[sheet_name]
+
+        for col_cells in ws.columns:
+
+            max_len = max(
+                len(str(cell.value or ""))
+                for cell in col_cells
+            )
+
+            adjusted_width = min(max_len + 3, 40)
+
+            ws.column_dimensions[
+                col_cells[0].column_letter
+            ].width = adjusted_width
+
+# =============================================================================
+# DONE
+# =============================================================================
+
+print("\n====================================================")
+print("COMPLETE STATISTICAL ANALYSIS FINISHED")
+print("====================================================")
+print(f"Saved to:\n{SAVE_PATH}")
+print("====================================================")
+    
 
 
 
@@ -4855,105 +3542,6 @@ print(f"Radar plot saved →\n  {png_path}\n  {pdf_path}")
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-import pandas as pd
-
-excel_files = [
-    ("BAT-RM",    r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/200 Epochs/segmentation_metrics_detailed_epoch_200_generated.xlsx'),
-    ("nnUNet",    r'I:/Radiotherapy/Cervix/Result/Result_Analysis/EXCEL FILES/EXCEL FILES/UNet3+/UNet3+_Axial_segmentationMetrcis.xlsx'),
-    ("SegMamba",  r'I:/Radiotherapy/Cervix/Result/Result_Analysis/EXCEL FILES/EXCEL FILES/UNetBase/UNetBase_Axial_segmentationMetrics.xlsx'),
-    ("TransUNet", r'I:/Radiotherapy/Cervix/Result/Result_Analysis/EXCEL FILES/EXCEL FILES/UNet/UNet_Axial_segmentationMetrics.xlsx'),
-    ("UNETR",     r'I:/Radiotherapy/Cervix/Result/Result_Analysis/EXCEL FILES/EXCEL FILES/TransUNet/TransUNet_Axial_segmentationMetrics.xlsx')
-]
-
-METRIC = "Dice"
-
-print("=" * 70)
-for name, path in excel_files:
-    df = pd.concat(pd.read_excel(path, sheet_name=None), ignore_index=True)
-    df[METRIC] = pd.to_numeric(df[METRIC], errors='coerce')
-    df["Class_Name"] = df["Class_Name"].astype(str).str.upper().str.strip()
-    df = df[~df["Class_Name"].isin(["BACKGROUND", "NAN", "NONE", "", "0"])]
-
-    print(f"\nModel : {name}")
-    print(f"Total rows      : {len(df)}")
-    print(f"Unique filenames: {df['Filename'].nunique()}")
-    print(f"Unique classes  : {sorted(df['Class_Name'].unique())}")
-    print(f"Rows per class  :\n{df['Class_Name'].value_counts().to_string()}")
-    print(f"\nSample filenames (first 5):")
-    print(df['Filename'].dropna().unique()[:5])
-    print("-" * 70)
-
-# ── Cross-check: how many filenames actually overlap between BAT-RM and others ──
-print("\n\nFILENAME OVERLAP BETWEEN BAT-RM AND OTHERS:")
-print("=" * 70)
-
-df_ref = pd.concat(pd.read_excel(excel_files[0][1], sheet_name=None), ignore_index=True)
-df_ref["Class_Name"] = df_ref["Class_Name"].astype(str).str.upper().str.strip()
-df_ref = df_ref[~df_ref["Class_Name"].isin(["BACKGROUND", "NAN", "NONE", "", "0"])]
-ref_files = set(df_ref['Filename'].dropna().unique())
-
-for name, path in excel_files[1:]:
-    df_other = pd.concat(pd.read_excel(path, sheet_name=None), ignore_index=True)
-    df_other["Class_Name"] = df_other["Class_Name"].astype(str).str.upper().str.strip()
-    df_other = df_other[~df_other["Class_Name"].isin(["BACKGROUND", "NAN", "NONE", "", "0"])]
-    other_files = set(df_other['Filename'].dropna().unique())
-
-    overlap = ref_files & other_files
-    print(f"\nBAT-RM vs {name}:")
-    print(f"  BAT-RM unique filenames : {len(ref_files)}")
-    print(f"  {name} unique filenames : {len(other_files)}")
-    print(f"  Overlapping filenames   : {len(overlap)}  <- THIS MUST BE > 0")
-    if len(overlap) == 0:
-        print(f"  BAT-RM sample : {list(ref_files)[:3]}")
-        print(f"  {name} sample : {list(other_files)[:3]}")
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
 
 
 
@@ -5487,23 +4075,7 @@ print(f"{'='*120}")
 if skipped:
     print(f"\nSkipped ({len(skipped)}): {skipped}")        
     
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
+
 
 
 
@@ -6075,10 +4647,103 @@ if len(summary_df) > 0:
 print(f"{'='*120}")
 if skipped:
     print(f"\nSkipped ({len(skipped)}): {skipped}")    
-    
-    
-    
-    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -6182,8 +4847,8 @@ color_map = {
 
 # ── Choose ONE boundary metric to plot ──
 # Options: "HD"  "HD95"  "ASD"  "NSD"  "RVD"  "RAVD"
-METRIC   = "HD"
-SAVE_DIR = r'I:/Radiotherapy/Cervix/Paper/Result/Quantitative/Boundary_Metrics'
+METRIC   = "RAVD"
+SAVE_DIR = r'I:/Radiotherapy/Cervix/Paper/Result/Quantitative/final/Boundary_Metrics'
 os.makedirs(SAVE_DIR, exist_ok=True)
 
 # Classes to include (must match column prefix in the boundary Excel)
@@ -6473,7 +5138,7 @@ plt.savefig(os.path.join(SAVE_DIR, f"{METRIC}_Boundary_Plot.pdf"),
             format='pdf', bbox_inches='tight')
 plt.show()
 
-print(f"Success. Files saved in: {SAVE_DIR}")    
+print(f"Success. Files saved in: {SAVE_DIR}")  
 
 
 
@@ -6573,7 +5238,7 @@ excel_files = [
 # Distance metrics (lower = better): "HD" | "HD95" | "ASD"
 # Overlap / surface metrics (higher = better): "NSD" | "RVD" | "RAVD"
 # ------------------------------------------------------------------------------
-METRIC  = "HD95"
+METRIC  = "RAVD"
 AGG_FN  = "mean"     # patient-level aggregation: "mean" | "median"
 LINKAGE = "ward"     # hierarchical linkage: "ward" | "average" | "complete"
 
@@ -6591,7 +5256,7 @@ class_list = [
     "RECTUM", "FEMORAL HEAD", "GTV", "CTV",
 ]
 
-SAVE_DIR = r'I:/Radiotherapy/Cervix/Paper/Result/Quantitative/Boundary'
+SAVE_DIR = r'I:/Radiotherapy/Cervix/Paper/Result/Quantitative/final/Boundary_Metrics/HEATMAP CLUSTERING DENDROGRAM'
 os.makedirs(SAVE_DIR, exist_ok=True)
 
 # =============================================================================
@@ -6825,8 +5490,12 @@ plt.savefig(pdf_path, format="pdf",  bbox_inches="tight", facecolor="white")
 plt.show()
 
 print(f"Clustermap saved →\n  {png_path}\n  {pdf_path}")
-        
-        
+
+
+
+
+
+
 
 
 
@@ -6871,32 +5540,701 @@ print(f"Clustermap saved →\n  {png_path}\n  {pdf_path}")
 
 
 # =============================================================================
-# RADAR / SPIDER PLOT — Boundary Metrics  (Nature Medicine Style)
+# BLAND-ALTMAN PLOT — Boundary Metrics (Nature Medicine Style)
 # =============================================================================
-# Compares segmentation models across anatomical classes using a boundary
-# distance or overlap metric (HD, HD95, ASD, NSD, RVD, RAVD).
+# Produces a Bland-Altman (mean-difference) plot for each boundary metric
+# comparing the reference / best model (BAT-RM) against every baseline.
 #
-# Reads the same wide-format Detailed_Per_Instance Excel used by the
-# boundary box plot and clustermap pipelines.
+# Layout:
+#   • One figure per metric (ASD, HD95, etc.)
+#   • One panel per baseline model within each figure
+#   • X-axis: mean of the two models' measurements per patient
+#   • Y-axis: difference (Reference − Baseline) per patient
 #
-# Key design decisions vs. the segmentation radar:
-#   • Radial axis is INVERTED for distance metrics (HD, HD95, ASD):
-#     the centre = worst value, the outer ring = best (lowest distance).
-#     This means a LARGER polygon = BETTER performance, consistent with
-#     the segmentation radar where larger = better.
-#     For overlap metrics (NSD) the axis is NOT inverted (larger = better
-#     already holds naturally).
-#   • Radial grid labels show the original metric values (mm or ratio),
-#     not normalised values, so readers can extract numbers directly.
-#   • Infinite values are excluded before aggregation.
-#   • Colour palette is the same Wong-2011 colour-blind safe set used
-#     in the segmentation radar for visual consistency across figures.
+# Annotations per panel:
+#   • Bias line      — mean difference (solid, coloured)
+#   • LoA lines      — bias ± 1.96 × SD (dashed, coloured)
+#   • 95% CI bands   — shaded around bias and LoA (BCa bootstrap, n=1000)
+#   • Scatter points — one dot per patient, colour = model, alpha for density
+#   • LOWESS trend   — detects proportional bias (non-random residual pattern)
+#   • Stats box       — bias, LoA, Shapiro-Wilk normality, n pairs
+#
+# Clinical interpretation guide printed to console for each panel.
+#
+# Bland-Altman references:
+#   Bland & Altman, Lancet 1986; Stat Methods Med Res 1999
+#   Giavarina, Biochemia Medica 2015 (tutorial)
 #
 # Nature Medicine compliance:
-#   • Figure width 18 cm (two-column), 600 DPI PNG + vector PDF
-#   • Helvetica-first font stack, pdf.fonttype = 42 (TrueType embedding)
-#   • No chart junk: no box around legend, minimal tick marks
-#   • Sentence-case title, italic subtitle with patient count
+#   • 600 DPI PNG + vector PDF
+#   • Helvetica-first font, pdf.fonttype=42 (TrueType embedding)
+#   • Wong (2011) colour-blind safe palette
+#   • No legend box, sentence-case titles
+#
+# Dependencies: pandas, numpy, matplotlib, scipy, statsmodels, openpyxl
+# =============================================================================
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+import matplotlib.lines as mlines
+from matplotlib.gridspec import GridSpec
+from scipy import stats
+from scipy.stats import shapiro
+import os
+import warnings
+
+warnings.filterwarnings("ignore")
+
+# =============================================================================
+# 1. CONFIGURATION  — edit only this section
+# =============================================================================
+
+REFERENCE_MODEL = "BAT-RM"    # your proposed / best model
+
+excel_files_bnd = [
+    ("BAT-RM", r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/200 Epochs/boundary_metrics_epoch_200_enhanced_v5.xlsx'),
+    ("nnUNet",  r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/134 epochs/boundary_metrics_epoch_134_generated.xlsx'),
+    ("SegMamba",  r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/UNET3+_boundary_metrics_epoch_200_generated.xlsx'),
+    ("TransUNet",  r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/vanilla_unet_boundary_metrics_epoch_200_generated.xlsx'),
+    ("UNETR",  r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/nnUNet_256/boundary_metrics_nnUNet_100_epochs_generated.xlsx')
+]
+
+# excel_files_seg = [
+#     ("BAT-RM",    r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/200 Epochs/segmentation_metrics_enhanced_200_epoch_enhanced.xlsx'),
+#     ("nnUNet",    r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/134 epochs/segmentation_metrics_detailed_epoch_134_generated.xlsx'),
+#     ("SegMamba",  r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/UNET3+_segmentation_metrics_detailed_epoch_200_generated.xlsx'),
+#     ("TransUNet", r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/vanilla_unet_segmentation_metrics_detailed_epoch_200_generated.xlsx'),
+#     ("UNETR",     r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/nnUNet_256/Segmentation_Cervix_small_Axial_axis_pytorch_detailed_metrics_Generated.xlsx'),
+# ]
+
+# excel_files_bnd = [
+#     ("BAT-RM", r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/200 Epochs/boundary_metrics_epoch_200_enhanced_v5.xlsx'),
+#     ("nnUNet",  r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/134 epochs/boundary_metrics_epoch_134_generated.xlsx'),
+#     ("SegMamba",  r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/UNET3+_boundary_metrics_epoch_200_generated.xlsx'),
+#     ("TransUNet",  r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/vanilla_unet_boundary_metrics_epoch_200_generated.xlsx'),
+#     ("UNETR",  r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/nnUNet_256/boundary_metrics_nnUNet_100_epochs_generated.xlsx')
+# ]
+
+# Boundary metrics to plot (one full figure per metric)
+BND_METRICS = ["ASD", "HD95", "HD"]
+
+# Anatomical classes — one Bland-Altman panel per class × baseline combination
+class_list = [
+    "BODY", "URINARY BLADDER", "SMALL BOWEL",
+    "RECTUM", "FEMORAL HEAD", "GTV", "CTV",
+]
+
+# Bootstrap settings for CI bands
+N_BOOT   = 1000
+ALPHA_CI = 0.05     # 95% CI
+
+# LOWESS smoothing fraction (0.5 = smooth, 0.2 = follows data more closely)
+LOWESS_FRAC = 0.5
+
+SAVE_DIR = r'I:/Radiotherapy/Cervix/Paper/Result/Quantitative/Final/Boundary_Metrics/BlandAltman'
+os.makedirs(SAVE_DIR, exist_ok=True)
+
+# Wong (2011) colour-blind safe palette
+MODEL_COLORS = {
+    "BAT-RM":    "#0077BB",
+    "nnUNet":    "#009988",
+    "SegMamba":  "#EE7733",
+    "TransUNet": "#CC3311",
+    "UNETR":     "#AA4499",
+}
+
+# =============================================================================
+# 2. MATPLOTLIB GLOBAL STYLE  (Nature Medicine)
+# =============================================================================
+
+plt.rcParams.update({
+    "font.family":      "sans-serif",
+    "font.sans-serif":  ["Helvetica", "Arial", "DejaVu Sans"],
+    "font.size":        9,
+    "axes.titlesize":   9,
+    "axes.labelsize":   8.5,
+    "xtick.labelsize":  7.5,
+    "ytick.labelsize":  7.5,
+    "axes.linewidth":   0.6,
+    "grid.linewidth":   0.35,
+    "axes.facecolor":   "white",
+    "figure.facecolor": "white",
+    "pdf.fonttype":     42,
+    "ps.fonttype":      42,
+    "figure.dpi":       150,
+    "savefig.dpi":      600,
+})
+
+# =============================================================================
+# 3. DATA LOADING
+# =============================================================================
+
+def load_boundary(excel_files, metrics, class_list):
+    """
+    Load wide-format boundary Excel (Detailed_Per_Instance sheet).
+    Returns long-format DataFrame: Filename | Class_Name | Model | <metrics>
+    Builds one row-block per class per file — no iterative merge, no
+    duplicate-column suffix errors.
+    """
+    all_data = []
+
+    for name, path in excel_files:
+        df = pd.read_excel(path, sheet_name="Detailed_Per_Instance")
+        file_rows = []
+
+        for cls in class_list:
+            present = f"{cls}_Present_In_GT"
+            gt_vol  = f"{cls}_GT_Volume"
+
+            if present in df.columns:
+                sub = df[df[present] == True].copy()
+            elif gt_vol in df.columns:
+                sub = df[df[gt_vol] > 0].copy()
+            else:
+                sub = df.copy()
+
+            if sub.empty:
+                continue
+
+            cls_cols = {"Filename": sub["Filename"].values}
+            any_found = False
+
+            for m in metrics:
+                col = f"{cls}_{m}"
+                if col not in df.columns:
+                    cls_cols[m] = np.nan
+                    continue
+                vals = pd.to_numeric(sub[col], errors="coerce").values
+                vals = np.where(np.isfinite(vals), vals, np.nan)
+                cls_cols[m] = vals
+                any_found = True
+
+            if not any_found:
+                continue
+
+            tmp = pd.DataFrame(cls_cols)
+            tmp["Class_Name"] = cls.upper().strip()
+            tmp["Model"]      = name
+            tmp = tmp.dropna(subset=metrics, how="all")
+            file_rows.append(tmp)
+
+        if file_rows:
+            all_data.append(pd.concat(file_rows, ignore_index=True))
+
+    if not all_data:
+        raise ValueError(
+            "No boundary data loaded. Check file paths and sheet name "
+            "'Detailed_Per_Instance'."
+        )
+    return pd.concat(all_data, ignore_index=True)
+
+
+df_bnd = load_boundary(excel_files_bnd, BND_METRICS, class_list)
+
+model_names = [m for m, _ in excel_files_bnd]
+baselines   = [m for m in model_names if m != REFERENCE_MODEL]
+classes     = [c.upper().strip() for c in class_list
+               if c.upper().strip() in df_bnd["Class_Name"].unique()]
+
+print(f"Models   : {model_names}")
+print(f"Classes  : {classes}")
+print(f"Metrics  : {BND_METRICS}")
+print(f"Patients : {df_bnd['Filename'].nunique()}\n")
+
+# =============================================================================
+# 4. STATISTICAL HELPERS
+# =============================================================================
+
+def bland_altman_stats(ref, bsl, n_boot=1000, alpha=0.05, seed=42):
+    """
+    Compute Bland-Altman statistics for paired measurements.
+
+    Returns a dict with:
+        means       — per-pair mean  (x-axis)
+        diffs       — per-pair difference ref − bsl  (y-axis)
+        bias        — mean difference
+        loa_lo/hi   — bias ± 1.96 × SD
+        ci_bias_*   — bootstrap 95% CI for bias
+        ci_loa_lo_* — bootstrap 95% CI for lower LoA
+        ci_loa_hi_* — bootstrap 95% CI for upper LoA
+        sw_p        — Shapiro-Wilk p-value on differences
+        n           — number of pairs
+        pct_within  — % of points within LoA
+    """
+    ref, bsl = np.asarray(ref, float), np.asarray(bsl, float)
+    means = (ref + bsl) / 2.0
+    diffs = ref - bsl
+
+    bias   = diffs.mean()
+    sd     = diffs.std(ddof=1)
+    loa_lo = bias - 1.96 * sd
+    loa_hi = bias + 1.96 * sd
+
+    # Bootstrap CI (percentile method)
+    rng = np.random.default_rng(seed)
+    n   = len(diffs)
+    boot_bias  = np.empty(n_boot)
+    boot_lo    = np.empty(n_boot)
+    boot_hi    = np.empty(n_boot)
+
+    for i in range(n_boot):
+        samp       = rng.choice(diffs, size=n, replace=True)
+        b_bias     = samp.mean()
+        b_sd       = samp.std(ddof=1)
+        boot_bias[i] = b_bias
+        boot_lo[i]   = b_bias - 1.96 * b_sd
+        boot_hi[i]   = b_bias + 1.96 * b_sd
+
+    a = alpha / 2
+    sw_stat, sw_p = shapiro(diffs) if n >= 3 else (np.nan, np.nan)
+    pct_within = 100 * np.mean((diffs >= loa_lo) & (diffs <= loa_hi))
+
+    return {
+        "means":        means,
+        "diffs":        diffs,
+        "bias":         bias,
+        "sd":           sd,
+        "loa_lo":       loa_lo,
+        "loa_hi":       loa_hi,
+        "ci_bias_lo":   np.nanpercentile(boot_bias, 100 * a),
+        "ci_bias_hi":   np.nanpercentile(boot_bias, 100 * (1 - a)),
+        "ci_loa_lo_lo": np.nanpercentile(boot_lo,   100 * a),
+        "ci_loa_lo_hi": np.nanpercentile(boot_lo,   100 * (1 - a)),
+        "ci_loa_hi_lo": np.nanpercentile(boot_hi,   100 * a),
+        "ci_loa_hi_hi": np.nanpercentile(boot_hi,   100 * (1 - a)),
+        "sw_p":         sw_p,
+        "n":            n,
+        "pct_within":   pct_within,
+    }
+
+
+def lowess_curve(x, y, frac=0.5):
+    """
+    Compute LOWESS smoothed trend line.
+    Requires statsmodels; falls back to linear regression if unavailable.
+    """
+    try:
+        from statsmodels.nonparametric.smoothers_lowess import lowess
+        smoothed = lowess(y, x, frac=frac, return_sorted=True)
+        return smoothed[:, 0], smoothed[:, 1]
+    except ImportError:
+        # Fallback: simple linear regression line
+        slope, intercept, *_ = stats.linregress(x, y)
+        xs = np.linspace(x.min(), x.max(), 100)
+        return xs, intercept + slope * xs
+
+# =============================================================================
+# 5. SUMMARY STATISTICS TABLE
+# =============================================================================
+# Saved to Excel before plotting so it is available even if the figure fails.
+# =============================================================================
+
+stat_records = []
+
+ref_df = df_bnd[df_bnd["Model"] == REFERENCE_MODEL]
+
+for metric in BND_METRICS:
+    for cls in classes:
+        ref_sub = ref_df[ref_df["Class_Name"] == cls][["Filename", metric]].dropna()
+
+        for bsl in baselines:
+            bsl_sub = df_bnd[
+                (df_bnd["Model"] == cls) &      # intentional: filter by class
+                (df_bnd["Class_Name"] == cls)   # then overwrite below
+            ]
+            # Correct filter
+            bsl_sub = df_bnd[
+                (df_bnd["Model"] == bsl) &
+                (df_bnd["Class_Name"] == cls)
+            ][["Filename", metric]].dropna()
+
+            merged = pd.merge(
+                ref_sub, bsl_sub,
+                on="Filename", suffixes=("_ref", "_bsl")
+            ).dropna()
+
+            if len(merged) < 3:
+                continue
+
+            s = bland_altman_stats(
+                merged[f"{metric}_ref"].values,
+                merged[f"{metric}_bsl"].values,
+                N_BOOT, ALPHA_CI
+            )
+
+            stat_records.append({
+                "Metric":           metric,
+                "Class":            cls,
+                "Comparison":       f"{REFERENCE_MODEL} vs {bsl}",
+                "N_pairs":          s["n"],
+                "Bias":             round(s["bias"],   3),
+                "SD_diff":          round(s["sd"],     3),
+                "LoA_lower":        round(s["loa_lo"], 3),
+                "LoA_upper":        round(s["loa_hi"], 3),
+                "CI95_bias":        f"[{s['ci_bias_lo']:.3f}, {s['ci_bias_hi']:.3f}]",
+                "CI95_LoA_lower":   f"[{s['ci_loa_lo_lo']:.3f}, {s['ci_loa_lo_hi']:.3f}]",
+                "CI95_LoA_upper":   f"[{s['ci_loa_hi_lo']:.3f}, {s['ci_loa_hi_hi']:.3f}]",
+                "Shapiro_Wilk_p":   round(s["sw_p"],  4),
+                "Normal_diffs":     "Yes" if s["sw_p"] > 0.05 else "No",
+                "Pct_within_LoA":   round(s["pct_within"], 1),
+            })
+
+df_stats = pd.DataFrame(stat_records)
+stats_path = os.path.join(SAVE_DIR, "BlandAltman_Statistics.xlsx")
+df_stats.to_excel(stats_path, index=False)
+print(f"Statistics table saved → {stats_path}\n")
+
+# =============================================================================
+# 6. PLOTTING FUNCTION — single Bland-Altman panel
+# =============================================================================
+
+def draw_ba_panel(ax, s, color, title, metric, ref_name, bsl_name):
+    """
+    Draw one Bland-Altman panel onto axes `ax`.
+
+    Parameters
+    ----------
+    ax       : matplotlib Axes
+    s        : dict from bland_altman_stats()
+    color    : hex colour string for this baseline model
+    title    : panel title string (Class name)
+    metric   : metric name string (for y-label)
+    ref_name : reference model label
+    bsl_name : baseline model label
+    """
+    means = s["means"]
+    diffs = s["diffs"]
+
+    x_pad = (means.max() - means.min()) * 0.08 if means.ptp() > 0 else 1.0
+    x_lo  = means.min() - x_pad
+    x_hi  = means.max() + x_pad
+    x_range = np.array([x_lo, x_hi])
+
+    # ── Background: LoA zone shading ──
+    ax.axhspan(s["loa_lo"], s["loa_hi"],
+               color=color, alpha=0.06, zorder=0)
+
+    # ── CI bands around bias and LoA ──
+    # Bias CI
+    ax.fill_between(
+        x_range,
+        [s["ci_bias_lo"]] * 2, [s["ci_bias_hi"]] * 2,
+        color=color, alpha=0.18, zorder=1, linewidth=0,
+    )
+    # Lower LoA CI
+    ax.fill_between(
+        x_range,
+        [s["ci_loa_lo_lo"]] * 2, [s["ci_loa_lo_hi"]] * 2,
+        color=color, alpha=0.12, zorder=1, linewidth=0,
+    )
+    # Upper LoA CI
+    ax.fill_between(
+        x_range,
+        [s["ci_loa_hi_lo"]] * 2, [s["ci_loa_hi_hi"]] * 2,
+        color=color, alpha=0.12, zorder=1, linewidth=0,
+    )
+
+    # ── Reference zero line ──
+    ax.axhline(0, color="#999999", linewidth=0.7,
+               linestyle=":", zorder=2)
+
+    # ── Bias line ──
+    ax.axhline(s["bias"], color=color, linewidth=1.6,
+               linestyle="-", zorder=3, label=f"Bias {s['bias']:+.2f}")
+
+    # ── LoA lines ──
+    ax.axhline(s["loa_lo"], color=color, linewidth=1.2,
+               linestyle="--", zorder=3,
+               label=f"LoA [{s['loa_lo']:+.2f}, {s['loa_hi']:+.2f}]")
+    ax.axhline(s["loa_hi"], color=color, linewidth=1.2,
+               linestyle="--", zorder=3)
+
+    # ── Right-side labels for bias and LoA ──
+    label_x = x_hi + x_pad * 0.1
+    ax.text(label_x, s["bias"],  f"{s['bias']:+.2f}",
+            va="center", ha="left", fontsize=6.5,
+            color=color, fontweight="bold")
+    ax.text(label_x, s["loa_lo"], f"{s['loa_lo']:+.2f}",
+            va="center", ha="left", fontsize=6.0, color=color)
+    ax.text(label_x, s["loa_hi"], f"{s['loa_hi']:+.2f}",
+            va="center", ha="left", fontsize=6.0, color=color)
+
+    # ── Scatter: individual patient differences ──
+    ax.scatter(
+        means, diffs,
+        color=color, alpha=0.45, s=14, zorder=4,
+        edgecolors="white", linewidths=0.3,
+    )
+
+    # ── LOWESS trend (reveals proportional bias) ──
+    if len(means) >= 6:
+        lx, ly = lowess_curve(means, diffs, LOWESS_FRAC)
+        ax.plot(lx, ly, color="#333333", linewidth=1.0,
+                linestyle="-.", zorder=5, alpha=0.7,
+                label="LOWESS trend")
+
+    # ── Stats annotation box ──
+    sw_text = (f"SW p={s['sw_p']:.3f}"
+               if not np.isnan(s["sw_p"]) else "SW n/a")
+    normal_flag = "" if s["sw_p"] > 0.05 else " ✗"
+    stats_str = (
+        f"n={s['n']}\n"
+        f"Bias={s['bias']:+.2f} mm\n"
+        f"SD={s['sd']:.2f} mm\n"
+        f"{sw_text}{normal_flag}\n"
+        f"{s['pct_within']:.0f}% within LoA"
+    )
+    ax.text(
+        0.03, 0.97, stats_str,
+        transform=ax.transAxes,
+        va="top", ha="left", fontsize=6.5,
+        color="#222222",
+        bbox=dict(boxstyle="round,pad=0.3", facecolor="white",
+                  edgecolor="#cccccc", linewidth=0.5, alpha=0.85),
+        zorder=6,
+    )
+
+    # ── Axes formatting ──
+    ax.set_xlim(x_lo, x_hi + x_pad * 1.2)   # extra right margin for labels
+    ax.set_title(title, fontsize=8.5, fontweight="bold", pad=4)
+    ax.set_xlabel(f"Mean of {ref_name} & {bsl_name} ({metric}, mm)",
+                  fontsize=7.5, labelpad=3)
+    ax.set_ylabel(f"Difference\n{ref_name} − {bsl_name} (mm)",
+                  fontsize=7.5, labelpad=3)
+    ax.tick_params(axis="both", labelsize=7)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.spines["left"].set_linewidth(0.5)
+    ax.spines["bottom"].set_linewidth(0.5)
+    ax.grid(axis="y", linewidth=0.3, color="#eeeeee", zorder=0)
+
+# =============================================================================
+# 7. GENERATE ONE FIGURE PER METRIC
+# =============================================================================
+# Layout: rows = classes, columns = baselines
+# =============================================================================
+
+ref_df = df_bnd[df_bnd["Model"] == REFERENCE_MODEL]
+
+for metric in BND_METRICS:
+    n_rows = len(classes)
+    n_cols = len(baselines)
+
+    # Panel size: 3.2 in wide × 3.0 in tall each
+    FIG_W = n_cols * 3.2 + 0.8
+    FIG_H = n_rows * 3.0 + 1.2
+
+    fig, axes = plt.subplots(
+        n_rows, n_cols,
+        figsize=(FIG_W, FIG_H),
+        squeeze=False,
+    )
+
+    fig.suptitle(
+        f"Bland-Altman analysis — {metric} (mm)  |  "
+        f"Reference: {REFERENCE_MODEL}  |  "
+        f"Error bars: 95% bootstrap CI",
+        fontsize=11, fontweight="bold", y=0.995,
+    )
+    fig.text(
+        0.5, 0.983,
+        "Dashed lines: limits of agreement (bias ± 1.96 SD)  |  "
+        "Shaded bands: 95% CI  |  "
+        "Dash-dot: LOWESS trend  |  "
+        "✗ = differences non-normal (Shapiro-Wilk p<0.05)",
+        ha="center", fontsize=7.5, color="#555555", style="italic",
+    )
+
+    # ── Column headers (baseline model names) ──
+    for ci, bsl in enumerate(baselines):
+        axes[0, ci].set_title(
+            f"{REFERENCE_MODEL} vs {bsl}\n",
+            fontsize=9, fontweight="bold", color=MODEL_COLORS.get(bsl, "#333"),
+            pad=6,
+        )
+
+    # ── Draw each panel ──
+    for ri, cls in enumerate(classes):
+        ref_sub = ref_df[
+            ref_df["Class_Name"] == cls
+        ][["Filename", metric]].dropna()
+
+        for ci, bsl in enumerate(baselines):
+            ax    = axes[ri, ci]
+            color = MODEL_COLORS.get(bsl, "#888888")
+
+            bsl_sub = df_bnd[
+                (df_bnd["Model"] == bsl) &
+                (df_bnd["Class_Name"] == cls)
+            ][["Filename", metric]].dropna()
+
+            merged = pd.merge(
+                ref_sub, bsl_sub,
+                on="Filename", suffixes=("_ref", "_bsl")
+            ).dropna()
+
+            # Drop inf values
+            merged = merged[
+                np.isfinite(merged[f"{metric}_ref"]) &
+                np.isfinite(merged[f"{metric}_bsl"])
+            ]
+
+            if len(merged) < 3:
+                ax.text(0.5, 0.5, "Insufficient\npaired data",
+                        ha="center", va="center",
+                        fontsize=8, color="#aaaaaa",
+                        transform=ax.transAxes)
+                ax.set_title(cls, fontsize=8.5, fontweight="bold")
+                ax.axis("off")
+                continue
+
+            s = bland_altman_stats(
+                merged[f"{metric}_ref"].values,
+                merged[f"{metric}_bsl"].values,
+                N_BOOT, ALPHA_CI,
+            )
+
+            draw_ba_panel(
+                ax, s, color,
+                title  = cls,
+                metric = metric,
+                ref_name = REFERENCE_MODEL,
+                bsl_name = bsl,
+            )
+
+            # Console clinical interpretation
+            bias_flag = (
+                "✓ negligible bias" if abs(s["bias"]) < 1.0 else
+                "⚠ moderate bias"   if abs(s["bias"]) < 3.0 else
+                "✗ large bias"
+            )
+            loa_width = s["loa_hi"] - s["loa_lo"]
+            loa_flag  = (
+                "✓ narrow LoA"   if loa_width < 4.0 else
+                "⚠ moderate LoA" if loa_width < 8.0 else
+                "✗ wide LoA"
+            )
+            print(
+                f"[{metric}] {cls:20s} | {REFERENCE_MODEL} vs {bsl:10s} | "
+                f"n={s['n']:3d} | bias={s['bias']:+.2f} mm "
+                f"[{s['loa_lo']:+.2f}, {s['loa_hi']:+.2f}] | "
+                f"{bias_flag} | {loa_flag}"
+            )
+
+    plt.tight_layout(rect=[0, 0, 1, 0.982])
+
+    # ── Legend (shared, bottom of figure) ──
+    legend_handles = []
+    for bsl in baselines:
+        c = MODEL_COLORS.get(bsl, "#888888")
+        legend_handles += [
+            mlines.Line2D([0], [0], color=c, lw=1.6,
+                          label=f"{REFERENCE_MODEL} vs {bsl} — bias"),
+            mlines.Line2D([0], [0], color=c, lw=1.2, linestyle="--",
+                          label=f"{REFERENCE_MODEL} vs {bsl} — LoA"),
+        ]
+    legend_handles.append(
+        mlines.Line2D([0], [0], color="#333333", lw=1.0, linestyle="-.",
+                      label="LOWESS trend")
+    )
+
+    fig.legend(
+        handles        = legend_handles,
+        loc            = "lower center",
+        ncol           = len(baselines) + 1,
+        frameon        = False,
+        fontsize       = 7.5,
+        bbox_to_anchor = (0.5, -0.01),
+    )
+
+    # ── Save ──
+    png_path = os.path.join(SAVE_DIR, f"{metric}_BlandAltman_NatureMedicine.png")
+    pdf_path = os.path.join(SAVE_DIR, f"{metric}_BlandAltman_NatureMedicine.pdf")
+    plt.savefig(png_path, dpi=600, bbox_inches="tight", facecolor="white")
+    plt.savefig(pdf_path, format="pdf", bbox_inches="tight", facecolor="white")
+    plt.show()
+    print(f"\n{metric} Bland-Altman saved →\n  {png_path}\n  {pdf_path}\n")
+
+print(f"All outputs in: {SAVE_DIR}")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# =============================================================================
+# CALIBRATION / ERROR DISTRIBUTION PLOT
+# Nature Medicine Style — Per-Patient HD95 & ASD Error Distributions
+# =============================================================================
+#
+# Produces TWO publication-ready outputs per metric (HD95, ASD):
+#
+#   OUTPUT 1 — KDE + Rug plot (main figure, PNG 600 DPI + PDF)
+#     • Smoothed kernel density estimate per model (overlaid, semi-transparent)
+#     • Rug ticks at the bottom: every patient's actual error value
+#     • Right-tail shading: region beyond 95th percentile of reference model
+#       (marks the "clinical safety concern" zone reviewers probe)
+#     • Vertical lines: median + 95th percentile per model
+#     • Inset table: median, IQR, 95th pct, % patients > clinical threshold
+#
+#   OUTPUT 2 — Violin + Strip plot (supplementary, PNG 600 DPI + PDF)
+#     • One panel per class
+#     • Violin shows full distribution shape
+#     • Strip of individual patient dots overlaid (jittered)
+#     • Median bar inside violin
+#
+# Layout: one row per anatomical class, one column per metric
+#
+# Clinical threshold defaults (mm) — adjust to your RT protocol:
+#   HD95: 5 mm  (common planning margin for pelvic targets)
+#   ASD:  2 mm
+#
+# Statistical annotations:
+#   • Kolmogorov-Smirnov test vs reference model (tests if distributions differ)
+#   • Right-tail ratio: P(model > threshold) / P(reference > threshold)
+#     RTR > 1 → model has proportionally more extreme errors (bad)
+#     RTR < 1 → model is safer
 #
 # Dependencies: pandas, numpy, matplotlib, scipy, openpyxl
 # =============================================================================
@@ -6905,7 +6243,10 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
-from matplotlib.lines import Line2D
+import matplotlib.lines as mlines
+import matplotlib.gridspec as gridspec
+from matplotlib.patches import FancyArrowPatch
+from scipy.stats import gaussian_kde, ks_2samp
 import os
 import warnings
 
@@ -6915,38 +6256,56 @@ warnings.filterwarnings("ignore")
 # 1. CONFIGURATION  — edit only this section
 # =============================================================================
 
-excel_files = [
-    ("BAT-RM",    r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/200 Epochs/boundary_metrics_epoch_200_generated.xlsx'),
-    ("nnUNet",    r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/nnUNet_256/boundary_metrics_nnUNet_100_epochs_generated.xlsx'),
-    ("SegMamba",  r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/200 Epochs/boundary_metrics_epoch_200_generated.xlsx'),
-    ("TransUNet", r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/200 Epochs/comprehensive_metrics_20260429_042527.xlsx'),
-    ("UNETR",     r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/200 Epochs/comprehensive_metrics_20260429_042527.xlsx'),
+REFERENCE_MODEL = "BAT-RM"
+
+excel_files_bnd = [
+    ("BAT-RM", r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/200 Epochs/boundary_metrics_epoch_200_enhanced_v5.xlsx'),
+    ("nnUNet",  r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/134 epochs/boundary_metrics_epoch_134_generated.xlsx'),
+    ("SegMamba",  r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/UNET3+_boundary_metrics_epoch_200_generated.xlsx'),
+    ("TransUNet",  r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/vanilla_unet_boundary_metrics_epoch_200_generated.xlsx'),
+    ("UNETR",  r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/nnUNet_256/boundary_metrics_nnUNet_100_epochs_generated.xlsx')
 ]
 
-# ------------------------------------------------------------------------------
-# Metric to plot
-#   Distance (lower = better): "HD" | "HD95" | "ASD"
-#   Overlap  (higher = better): "NSD" | "RVD" | "RAVD"
-# The LOWER_IS_BETTER flag controls axis inversion and label direction.
-# ------------------------------------------------------------------------------
-METRIC          = "ASD"
-LOWER_IS_BETTER = True    # True for HD / HD95 / ASD  |  False for NSD
 
-AGG_FN = "mean"           # patient-level aggregation: "mean" | "median"
+# excel_files_seg = [
+#     ("BAT-RM",    r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/200 Epochs/segmentation_metrics_enhanced_200_epoch_enhanced.xlsx'),
+#     ("nnUNet",    r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/134 epochs/segmentation_metrics_detailed_epoch_134_generated.xlsx'),
+#     ("SegMamba",  r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/UNET3+_segmentation_metrics_detailed_epoch_200_generated.xlsx'),
+#     ("TransUNet", r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/vanilla_unet_segmentation_metrics_detailed_epoch_200_generated.xlsx'),
+#     ("UNETR",     r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/nnUNet_256/Segmentation_Cervix_small_Axial_axis_pytorch_detailed_metrics_Generated.xlsx'),
+# ]
 
-# Anatomical classes — spokes of the radar (order = clockwise from top)
+# excel_files_bnd = [
+#     ("BAT-RM", r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/200 Epochs/boundary_metrics_epoch_200_enhanced_v5.xlsx'),
+#     ("nnUNet",  r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/134 epochs/boundary_metrics_epoch_134_generated.xlsx'),
+#     ("SegMamba",  r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/UNET3+_boundary_metrics_epoch_200_generated.xlsx'),
+#     ("TransUNet",  r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/vanilla_unet_boundary_metrics_epoch_200_generated.xlsx'),
+#     ("UNETR",  r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/nnUNet_256/boundary_metrics_nnUNet_100_epochs_generated.xlsx')
+# ]
+
+BND_METRICS = ["HD95", "ASD"]
+
 class_list = [
     "BODY", "URINARY BLADDER", "SMALL BOWEL",
     "RECTUM", "FEMORAL HEAD", "GTV", "CTV",
 ]
 
-# Number of concentric grid rings
-N_GRID_RINGS = 5
+# Clinical safety thresholds (mm) — errors ABOVE these are flagged
+CLINICAL_THRESHOLDS = {
+    "HD95": 5.0,   # mm — adjust to your protocol
+    "ASD":  2.0,   # mm
+}
 
-# ------------------------------------------------------------------------------
-# Colour palette: Wong (2011) colour-blind safe, same as segmentation radar
-# Order must match excel_files above
-# ------------------------------------------------------------------------------
+# KDE bandwidth method ('scott', 'silverman', or a float multiplier)
+KDE_BW = "scott"
+
+# X-axis cap for plotting (outliers beyond this are still counted in stats)
+X_CAP = {
+    "HD95": 30.0,  # mm
+    "ASD":  10.0,  # mm
+}
+
+# Wong (2011) colour-blind safe palette
 MODEL_COLORS = {
     "BAT-RM":    "#0077BB",
     "nnUNet":    "#009988",
@@ -6954,17 +6313,8 @@ MODEL_COLORS = {
     "TransUNet": "#CC3311",
     "UNETR":     "#AA4499",
 }
-MODEL_MARKERS = {
-    "BAT-RM":    "o",
-    "nnUNet":    "s",
-    "SegMamba":  "^",
-    "TransUNet": "D",
-    "UNETR":     "P",
-}
 
-FILL_ALPHA = 0.08    # polygon fill transparency
-
-SAVE_DIR = r'I:/Radiotherapy/Cervix/Paper/Result/Quantitative/Boundary'
+SAVE_DIR = r'I:/Radiotherapy/Cervix/Paper/Result/Quantitative/Final/Boundary_Metrics/ErrorDistribution'
 os.makedirs(SAVE_DIR, exist_ok=True)
 
 # =============================================================================
@@ -6975,330 +6325,595 @@ plt.rcParams.update({
     "font.family":      "sans-serif",
     "font.sans-serif":  ["Helvetica", "Arial", "DejaVu Sans"],
     "font.size":        9,
-    "axes.titlesize":   10,
-    "axes.labelsize":   9,
-    "xtick.labelsize":  8,
-    "ytick.labelsize":  8,
-    "legend.fontsize":  8.5,
+    "axes.titlesize":   9,
+    "axes.labelsize":   8.5,
+    "xtick.labelsize":  7.5,
+    "ytick.labelsize":  7.5,
     "axes.linewidth":   0.6,
-    "grid.linewidth":   0.4,
-    "lines.linewidth":  1.4,
+    "grid.linewidth":   0.35,
     "axes.facecolor":   "white",
     "figure.facecolor": "white",
-    "grid.color":       "#cccccc",
-    "grid.alpha":       0.7,
+    "pdf.fonttype":     42,
+    "ps.fonttype":      42,
     "figure.dpi":       150,
     "savefig.dpi":      600,
-    "pdf.fonttype":     42,     # TrueType embedding — required by Nature
-    "ps.fonttype":      42,
 })
 
 # =============================================================================
-# 3. DATA LOADING & CLEANING
-# =============================================================================
-# Wide-format sheet: one row = one patient, columns = CLASS_METRIC.
-# Presence filter uses CLASS_Present_In_GT (bool) or CLASS_GT_Volume > 0.
-# Infinite values are dropped — boundary penalty for empty predicted masks.
+# 3. DATA LOADING
 # =============================================================================
 
-all_data = []
+def load_boundary(excel_files, metrics, class_list):
+    all_data = []
+    for name, path in excel_files:
+        df = pd.read_excel(path, sheet_name="Detailed_Per_Instance")
+        file_rows = []
+        for cls in class_list:
+            present = f"{cls}_Present_In_GT"
+            gt_vol  = f"{cls}_GT_Volume"
+            if present in df.columns:
+                sub = df[df[present] == True].copy()
+            elif gt_vol in df.columns:
+                sub = df[df[gt_vol] > 0].copy()
+            else:
+                sub = df.copy()
+            if sub.empty:
+                continue
+            cls_cols = {"Filename": sub["Filename"].values}
+            any_found = False
+            for m in metrics:
+                col = f"{cls}_{m}"
+                if col not in df.columns:
+                    cls_cols[m] = np.nan
+                    continue
+                vals = pd.to_numeric(sub[col], errors="coerce").values
+                vals = np.where(np.isfinite(vals), vals, np.nan)
+                cls_cols[m] = vals
+                any_found = True
+            if not any_found:
+                continue
+            tmp = pd.DataFrame(cls_cols)
+            tmp["Class_Name"] = cls.upper().strip()
+            tmp["Model"]      = name
+            tmp = tmp.dropna(subset=metrics, how="all")
+            file_rows.append(tmp)
+        if file_rows:
+            all_data.append(pd.concat(file_rows, ignore_index=True))
+    if not all_data:
+        raise ValueError("No boundary data loaded. Check file paths and sheet name.")
+    return pd.concat(all_data, ignore_index=True)
 
-for name, path in excel_files:
-    df = pd.read_excel(path, sheet_name="Detailed_Per_Instance")
 
-    rows = []
-    for cls in class_list:
-        col     = f"{cls}_{METRIC}"
-        present = f"{cls}_Present_In_GT"
-        gt_vol  = f"{cls}_GT_Volume"
+df_bnd = load_boundary(excel_files_bnd, BND_METRICS, class_list)
 
-        if col not in df.columns:
-            continue
+model_names = [m for m, _ in excel_files_bnd]
+baselines   = [m for m in model_names if m != REFERENCE_MODEL]
+classes     = [c.upper().strip() for c in class_list
+               if c.upper().strip() in df_bnd["Class_Name"].unique()]
 
-        if present in df.columns:
-            sub = df[df[present] == True][["Filename", col]].copy()
-        elif gt_vol in df.columns:
-            sub = df[df[gt_vol] > 0][["Filename", col]].copy()
-        else:
-            sub = df[["Filename", col]].copy()
-
-        sub = sub.rename(columns={col: METRIC})
-        sub[METRIC] = pd.to_numeric(sub[METRIC], errors="coerce")
-        sub = sub.dropna(subset=[METRIC])
-        sub = sub[np.isfinite(sub[METRIC])]   # drop inf boundary penalties
-
-        sub["Class_Name"] = cls.upper().strip()
-        sub["Model"]      = name
-        rows.append(sub[["Filename", "Class_Name", METRIC, "Model"]])
-
-    if rows:
-        all_data.append(pd.concat(rows, ignore_index=True))
-
-df_main = pd.concat(all_data, ignore_index=True)
+print(f"Models   : {model_names}")
+print(f"Classes  : {classes}")
+print(f"Metrics  : {BND_METRICS}")
+print(f"Patients : {df_bnd['Filename'].nunique()}\n")
 
 # =============================================================================
-# 4. AGGREGATE: Model × Class pivot
+# 4. STATISTICS HELPER
 # =============================================================================
 
-pivot = (
-    df_main
-    .groupby(["Model", "Class_Name"])[METRIC]
-    .agg(AGG_FN)
-    .unstack("Class_Name")
-    .dropna(axis=1, how="all")
-    .fillna(0)
+def error_stats(vals, threshold):
+    vals = np.array(vals)
+    vals = vals[np.isfinite(vals)]
+    if len(vals) == 0:
+        return {}
+    return {
+        "n":          len(vals),
+        "median":     np.median(vals),
+        "q25":        np.percentile(vals, 25),
+        "q75":        np.percentile(vals, 75),
+        "p95":        np.percentile(vals, 95),
+        "mean":       vals.mean(),
+        "std":        vals.std(ddof=1),
+        "pct_exceed": 100 * np.mean(vals > threshold),
+        "max":        vals.max(),
+    }
+
+# =============================================================================
+# 5. FIGURE 1 — KDE + RUG PLOT (main figure)
+# Layout: rows = classes, columns = metrics
+# =============================================================================
+
+n_rows = len(classes)
+n_cols = len(BND_METRICS)
+
+FIG_W = n_cols * 5.5 + 0.5
+FIG_H = n_rows * 3.2 + 1.5
+
+fig, axes = plt.subplots(
+    n_rows, n_cols,
+    figsize=(FIG_W, FIG_H),
+    squeeze=False,
 )
 
-# Preserve original model order; keep only classes present in pivot
-model_names  = [m for m, _ in excel_files if m in pivot.index]
-classes      = [c for c in class_list if c in pivot.columns]
-N            = len(classes)
-
-# =============================================================================
-# 5. NORMALISATION FOR RADAR DISPLAY
-# =============================================================================
-# Radar plots require a single radial scale [0, 1].
-# We normalise each class (spoke) independently so the full ring width is used.
-#
-# For LOWER_IS_BETTER metrics (HD, HD95, ASD):
-#   norm = 1 − (value − col_min) / (col_max − col_min)
-#   → best score (lowest mm) maps to 1.0 (outer ring)
-#   → worst score (highest mm) maps to 0.0 (centre)
-#
-# For HIGHER_IS_BETTER metrics (NSD):
-#   norm = (value − col_min) / (col_max − col_min)
-#   → best score maps to 1.0 (outer ring)
-# =============================================================================
-
-raw   = pivot.loc[model_names, classes]          # DataFrame: models × classes
-col_min = raw.min(axis=0)
-col_max = raw.max(axis=0)
-col_rng = (col_max - col_min).replace(0, 1)      # avoid divide-by-zero
-
-if LOWER_IS_BETTER:
-    norm = 1.0 - (raw - col_min) / col_rng       # invert: lower raw → higher norm
-else:
-    norm = (raw - col_min) / col_rng              # direct: higher raw → higher norm
-
-# =============================================================================
-# 6. RADAR GEOMETRY HELPERS
-# =============================================================================
-
-def radar_angles(n):
-    """N evenly-spaced angles, starting at top (−π/2), clockwise."""
-    return np.linspace(0, 2 * np.pi, n, endpoint=False) - np.pi / 2
-
-
-def close_polygon(values, angles):
-    """Append first element to close the radar polygon."""
-    return (
-        np.concatenate([values, [values[0]]]),
-        np.concatenate([angles, [angles[0]]]),
-    )
-
-
-angles = radar_angles(N)
-
-# =============================================================================
-# 7. FIGURE LAYOUT
-# =============================================================================
-# Two-column Nature width: 7.09 in (≈ 18 cm).
-# Radar occupies left 65%; legend sits in right 35%.
-# =============================================================================
-
-FIG_W, FIG_H = 7.09, 6.30
-fig = plt.figure(figsize=(FIG_W, FIG_H))
-
-ax = fig.add_axes(
-    [0.06, 0.10, 0.60, 0.80],
-    projection="polar"
+fig.suptitle(
+    "Per-patient error distributions — KDE overlay across models\n"
+    "Shaded region: errors exceeding clinical safety threshold",
+    fontsize=11, fontweight="bold", y=0.998,
 )
 
-# =============================================================================
-# 8. POLAR AXES STYLING
-# =============================================================================
+# Collect stats for console + Excel export
+all_stats = []
 
-ax.set_theta_zero_location("N")    # first spoke at top
-ax.set_theta_direction(-1)         # clockwise
-ax.set_ylim(0, 1.0)
+for ri, cls in enumerate(classes):
+    for ci, metric in enumerate(BND_METRICS):
+        ax        = axes[ri, ci]
+        threshold = CLINICAL_THRESHOLDS[metric]
+        x_cap     = X_CAP[metric]
 
-# ------------------------------------------------------------------
-# 8a. Radial grid rings — labelled with ORIGINAL metric values
-#     Compute what raw value each normalised ring corresponds to per class.
-#     We use the mean raw value across classes at each ring level as the label,
-#     since each class has its own scale.  A footnote explains this.
-# ------------------------------------------------------------------
-grid_levels = np.linspace(0, 1, N_GRID_RINGS + 1)[1:]  # e.g. [0.2, 0.4, 0.6, 0.8, 1.0]
+        # ── Compute KDE for each model and find the global y-max ──
+        kde_curves = {}
+        x_eval     = np.linspace(0, x_cap, 500)
 
-# Reconstruct approximate raw values at each ring from the global range
-global_min = raw.values.min()
-global_max = raw.values.max()
+        for model in model_names:
+            vals = df_bnd[
+                (df_bnd["Model"] == model) &
+                (df_bnd["Class_Name"] == cls)
+            ][metric].dropna().values
+            vals = vals[np.isfinite(vals)]
+            vals = np.clip(vals, 0, x_cap * 1.5)   # soft clip for KDE
 
-if LOWER_IS_BETTER:
-    # norm = 1 − (raw − col_min) / col_rng  →  raw ≈ global_max − g*(global_max − global_min)
-    ring_raw_approx = [global_max - g * (global_max - global_min) for g in grid_levels]
-else:
-    ring_raw_approx = [global_min + g * (global_max - global_min) for g in grid_levels]
+            if len(vals) < 4:
+                kde_curves[model] = (x_eval, np.zeros_like(x_eval), vals)
+                continue
+            try:
+                kde  = gaussian_kde(vals, bw_method=KDE_BW)
+                dens = kde(x_eval)
+            except Exception:
+                dens = np.zeros_like(x_eval)
+            kde_curves[model] = (x_eval, dens, vals)
 
-ring_labels = [f"{v:.1f}" for v in ring_raw_approx]
+        y_max = max(
+            curve[1].max() for curve in kde_curves.values()
+            if curve[1].max() > 0
+        ) if any(c[1].max() > 0 for c in kde_curves.values()) else 1.0
 
-ax.set_rgrids(
-    grid_levels,
-    labels=ring_labels,
-    angle=225,
-    fontsize=7,
-    color="#888888",
-)
-ax.set_rlabel_position(225)
+        # ── Right-tail danger zone (reference model 95th pct) ──
+        ref_vals = kde_curves[REFERENCE_MODEL][2]
+        ref_p95  = np.percentile(ref_vals, 95) if len(ref_vals) > 0 else threshold
 
-# ------------------------------------------------------------------
-# 8b. Spoke (class) labels
-# ------------------------------------------------------------------
-ax.set_thetagrids(
-    np.degrees(angles + np.pi / 2),   # undo the −π/2 rotation for thetagrids
-    labels=classes,
-    fontsize=8.5,
-)
+        ax.axvspan(
+            threshold, x_cap,
+            color="#FFCCCC", alpha=0.35, zorder=0,
+            label=f">{threshold} mm threshold",
+        )
+        ax.axvspan(
+            ref_p95, x_cap,
+            color="#FF8888", alpha=0.15, zorder=0,
+        )
 
-for label, angle_rad in zip(ax.get_xticklabels(), angles):
-    label.set_color("#333333")
-    label.set_fontsize(8.5)
-    deg = np.degrees(angle_rad)
-    if   deg < -135 or deg > 135: label.set_horizontalalignment("center")
-    elif deg < 0:                  label.set_horizontalalignment("right")
-    else:                          label.set_horizontalalignment("left")
+        # ── Threshold vertical line ──
+        ax.axvline(
+            threshold, color="#CC2222", linewidth=0.9,
+            linestyle="--", zorder=2, alpha=0.85,
+            label=f"Threshold {threshold} mm",
+        )
 
-# ------------------------------------------------------------------
-# 8c. Grid aesthetics
-# ------------------------------------------------------------------
-ax.yaxis.grid(True, linestyle="--", linewidth=0.4, color="#bbbbbb", alpha=0.7)
-ax.xaxis.grid(True, linestyle="-",  linewidth=0.4, color="#cccccc", alpha=0.5)
-ax.spines["polar"].set_visible(False)
+        # ── KDE curves (reference on top, slightly thicker) ──
+        plot_order = baselines + [REFERENCE_MODEL]
+        for model in plot_order:
+            x_k, dens, vals = kde_curves[model]
+            color    = MODEL_COLORS.get(model, "#888888")
+            is_ref   = model == REFERENCE_MODEL
+            lw       = 2.2 if is_ref else 1.4
+            alpha    = 0.90 if is_ref else 0.75
+            zorder   = 5 if is_ref else 3
 
-# Alternating ring background (subtle, Nature style)
-for i in range(len(grid_levels) - 1, -1, -1):
-    facecolor = "#f7f7f7" if i % 2 == 0 else "white"
-    ax.fill_between(
-        np.linspace(0, 2 * np.pi, 300),
-        grid_levels[i - 1] if i > 0 else 0,
-        grid_levels[i],
-        color=facecolor,
-        zorder=0,
-    )
+            ax.fill_between(
+                x_k, dens,
+                color=color, alpha=0.08 if is_ref else 0.05,
+                zorder=zorder - 1,
+            )
+            ax.plot(
+                x_k, dens,
+                color=color, linewidth=lw, alpha=alpha,
+                zorder=zorder, label=model,
+            )
 
-# =============================================================================
-# 9. PLOT EACH MODEL
-# =============================================================================
+            if len(vals) < 2:
+                continue
 
-for model in model_names:
-    values              = norm.loc[model, classes].values.astype(float)
-    color               = MODEL_COLORS[model]
-    marker              = MODEL_MARKERS[model]
-    vals_c, ang_c       = close_polygon(values, angles)
+            # Median line
+            med = np.median(vals)
+            if med <= x_cap:
+                med_dens = gaussian_kde(vals, bw_method=KDE_BW)(np.array([med]))[0] if len(vals) >= 4 else 0
+                ax.plot(
+                    [med, med], [0, med_dens],
+                    color=color, linewidth=0.9,
+                    linestyle=":", alpha=0.7, zorder=zorder,
+                )
 
-    # Filled polygon
-    ax.fill(ang_c, vals_c, color=color, alpha=FILL_ALPHA, zorder=2)
+            # Rug ticks (bottom of axis)
+            rug_vals = np.clip(vals, 0, x_cap)
+            rug_y    = -0.02 * y_max
+            ax.plot(
+                rug_vals, np.full_like(rug_vals, rug_y),
+                "|", color=color, alpha=0.25,
+                markersize=4, markeredgewidth=0.6,
+            )
 
-    # Outline
-    ax.plot(ang_c, vals_c, color=color, linewidth=1.6, linestyle="-", zorder=3)
+            # Stats record
+            st = error_stats(vals, threshold)
+            if st:
+                # KS test vs reference
+                ref_v = kde_curves[REFERENCE_MODEL][2]
+                if model != REFERENCE_MODEL and len(ref_v) > 0 and len(vals) > 0:
+                    ks_stat, ks_p = ks_2samp(ref_v, vals)
+                else:
+                    ks_stat, ks_p = np.nan, np.nan
 
-    # Vertex markers
-    ax.scatter(
-        angles, values,
-        color=color, marker=marker, s=28, zorder=4,
-        linewidths=0.6, edgecolors="white",
-    )
+                rtr = (st["pct_exceed"] / error_stats(ref_v, threshold).get("pct_exceed", 1e-9)) \
+                      if model != REFERENCE_MODEL and len(ref_v) > 0 else np.nan
 
-# =============================================================================
-# 10. PERFORMANCE DIRECTION ANNOTATION
-# =============================================================================
-# Arrow + label at bottom of the radar reminding readers which direction
-# is better — critical for inverted-axis distance metrics.
-# =============================================================================
+                all_stats.append({
+                    "Metric":              metric,
+                    "Class":               cls,
+                    "Model":               model,
+                    "N":                   st["n"],
+                    "Median_mm":           round(st["median"], 2),
+                    "IQR_mm":              f"{st['q25']:.2f}–{st['q75']:.2f}",
+                    "P95_mm":              round(st["p95"], 2),
+                    "Mean_mm":             round(st["mean"], 2),
+                    "SD_mm":               round(st["std"], 2),
+                    "Max_mm":              round(st["max"], 2),
+                    f"Pct_exceed_{threshold}mm": round(st["pct_exceed"], 1),
+                    "KS_stat_vs_ref":      round(ks_stat, 3) if not np.isnan(ks_stat) else "—",
+                    "KS_p_vs_ref":         round(ks_p,    4) if not np.isnan(ks_p)    else "—",
+                    "Right_tail_ratio":    round(rtr, 2)     if not np.isnan(rtr)      else "—",
+                })
 
-direction_text = (
-    "← outer ring = lower (better)"
-    if LOWER_IS_BETTER else
-    "← outer ring = higher (better)"
-)
-ax.text(
-    0, -0.18,                         # below the radar in normalised axes
-    direction_text,
-    transform=ax.transAxes,
-    fontsize=7, color="#666666", style="italic",
-    ha="left", va="top",
-)
+        # ── Inset summary table ──
+        table_lines = [f"{'Model':<12} {'Med':>5} {'P95':>5} {'>thr%':>6}"]
+        table_lines.append("─" * 32)
+        for model in model_names:
+            _, _, vals = kde_curves[model]
+            if len(vals) < 2:
+                continue
+            st  = error_stats(vals, threshold)
+            tag = "★ " if model == REFERENCE_MODEL else "  "
+            table_lines.append(
+                f"{tag}{model:<10} {st['median']:>5.1f} {st['p95']:>5.1f} {st['pct_exceed']:>5.1f}%"
+            )
 
-# =============================================================================
-# 11. LEGEND  (outside radar, right side — no frame, Nature style)
-# =============================================================================
+        table_text = "\n".join(table_lines)
+        ax.text(
+            0.98, 0.97, table_text,
+            transform=ax.transAxes,
+            va="top", ha="right",
+            fontsize=5.8,
+            fontfamily="monospace",
+            color="#222222",
+            bbox=dict(
+                boxstyle="round,pad=0.4",
+                facecolor="white",
+                edgecolor="#cccccc",
+                linewidth=0.5,
+                alpha=0.88,
+            ),
+            zorder=10,
+        )
 
+        # ── Axis formatting ──
+        ax.set_xlim(0, x_cap)
+        ax.set_ylim(-0.04 * y_max, y_max * 1.18)
+        ax.set_xlabel(f"{metric} (mm)", fontsize=8)
+        ax.set_ylabel("Density", fontsize=8)
+        ax.set_title(f"{cls}  —  {metric}", fontsize=8.5, fontweight="bold", pad=4)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        ax.spines["left"].set_linewidth(0.5)
+        ax.spines["bottom"].set_linewidth(0.5)
+        ax.tick_params(labelsize=7)
+        ax.grid(axis="x", linewidth=0.3, color="#eeeeee", zorder=0)
+
+        # First panel only: add danger zone annotation arrow
+        if ri == 0 and ci == 0:
+            ax.annotate(
+                "Clinical\nconcern zone",
+                xy=(threshold + 0.3, y_max * 0.7),
+                xytext=(threshold + (x_cap - threshold) * 0.45, y_max * 0.9),
+                fontsize=6.5, color="#CC2222",
+                ha="center",
+                arrowprops=dict(
+                    arrowstyle="->",
+                    color="#CC2222",
+                    lw=0.8,
+                ),
+            )
+
+# ── Shared legend ──
 legend_handles = [
-    Line2D(
+    mlines.Line2D(
         [0], [0],
         color=MODEL_COLORS[m],
-        linewidth=1.6,
-        marker=MODEL_MARKERS[m],
-        markersize=5,
-        markerfacecolor=MODEL_COLORS[m],
-        markeredgecolor="white",
-        markeredgewidth=0.5,
-        label=m,
+        linewidth=2.2 if m == REFERENCE_MODEL else 1.4,
+        label=f"{m}{'  ★ reference' if m == REFERENCE_MODEL else ''}",
     )
     for m in model_names
 ]
+legend_handles += [
+    mpatches.Patch(color="#FFCCCC", alpha=0.6, label=f"Beyond threshold"),
+    mlines.Line2D([0], [0], color="#CC2222", lw=0.9, linestyle="--",
+                  label="Clinical threshold"),
+    mlines.Line2D([0], [0], color="#888888", lw=0.9, linestyle=":",
+                  label="Model median"),
+]
 
-legend = fig.legend(
+fig.legend(
     handles        = legend_handles,
-    loc            = "center right",
-    bbox_to_anchor = (1.01, 0.50),
+    loc            = "lower center",
+    ncol           = len(model_names) + 3,
     frameon        = False,
-    title          = "Model",
-    title_fontsize = 9,
-    fontsize       = 8.5,
-    handlelength   = 2.0,
-    handleheight   = 0.8,
-    borderpad      = 0.5,
-    labelspacing   = 0.6,
-)
-legend.get_title().set_fontweight("bold")
-
-# =============================================================================
-# 12. TITLES & SUBTITLES
-# =============================================================================
-
-direction_note = "lower = better" if LOWER_IS_BETTER else "higher = better"
-n_scans = df_main["Filename"].nunique()
-
-fig.text(
-    0.06, 0.96,
-    f"Comparative {METRIC} performance across anatomical classes",
-    fontsize=10, fontweight="bold", va="top", ha="left", color="#111111",
-)
-fig.text(
-    0.06, 0.915,
-    (f"{AGG_FN.capitalize()} per-patient {METRIC} (mm)  |  "
-     f"{direction_note}  |  "
-     f"n = {n_scans} scans  |  "
-     f"Radial scale normalised per class; labels show approx. raw values"),
-    fontsize=7.5, va="top", ha="left", color="#555555", style="italic",
+    fontsize       = 8,
+    bbox_to_anchor = (0.5, -0.005),
 )
 
-# Panel label — uncomment if part of a multi-panel figure
-# fig.text(0.01, 0.99, "b", fontsize=12, fontweight="bold", va="top", ha="left")
+plt.tight_layout(rect=[0, 0.03, 1, 0.996])
 
-# =============================================================================
-# 13. SAVE
-# =============================================================================
-
-png_path = os.path.join(SAVE_DIR, f"{METRIC}_Boundary_Radar_NatureMedicine.png")
-pdf_path = os.path.join(SAVE_DIR, f"{METRIC}_Boundary_Radar_NatureMedicine.pdf")
-
-plt.savefig(png_path, dpi=600, bbox_inches="tight", facecolor="white")
-plt.savefig(pdf_path, format="pdf",  bbox_inches="tight", facecolor="white")
+kde_png = os.path.join(SAVE_DIR, "ErrorDistribution_KDE_NatureMedicine.png")
+kde_pdf = os.path.join(SAVE_DIR, "ErrorDistribution_KDE_NatureMedicine.pdf")
+plt.savefig(kde_png, dpi=600, bbox_inches="tight", facecolor="white")
+plt.savefig(kde_pdf, format="pdf", bbox_inches="tight", facecolor="white")
 plt.show()
+print(f"KDE figure saved →\n  {kde_png}\n  {kde_pdf}\n")
 
-print(f"Radar plot saved →\n  {png_path}\n  {pdf_path}")    
+# =============================================================================
+# 6. FIGURE 2 — VIOLIN + STRIP (supplementary)
+# =============================================================================
+
+fig2, axes2 = plt.subplots(
+    n_rows, n_cols,
+    figsize=(FIG_W, FIG_H),
+    squeeze=False,
+)
+
+fig2.suptitle(
+    "Per-patient error distributions — Violin + strip plot\n"
+    "Each dot = one patient; horizontal bar = median",
+    fontsize=11, fontweight="bold", y=0.998,
+)
+
+rng = np.random.default_rng(42)
+
+for ri, cls in enumerate(classes):
+    for ci, metric in enumerate(BND_METRICS):
+        ax        = axes2[ri, ci]
+        threshold = CLINICAL_THRESHOLDS[metric]
+        x_cap     = X_CAP[metric]
+
+        ax.axhline(threshold, color="#CC2222", linewidth=0.9,
+                   linestyle="--", alpha=0.8, zorder=2,
+                   label=f"Threshold {threshold} mm")
+
+        positions = range(len(model_names))
+
+        for pos, model in zip(positions, model_names):
+            vals = df_bnd[
+                (df_bnd["Model"] == model) &
+                (df_bnd["Class_Name"] == cls)
+            ][metric].dropna().values
+            vals = vals[np.isfinite(vals)]
+            vals = np.clip(vals, 0, x_cap * 1.5)
+
+            color    = MODEL_COLORS.get(model, "#888888")
+            is_ref   = model == REFERENCE_MODEL
+
+            if len(vals) < 4:
+                ax.scatter(
+                    [pos], [np.nan],
+                    color=color, s=8, alpha=0.5, zorder=3,
+                )
+                continue
+
+            # ── Violin ──
+            try:
+                kde    = gaussian_kde(vals, bw_method=KDE_BW)
+                y_eval = np.linspace(vals.min(), min(vals.max(), x_cap), 300)
+                dens   = kde(y_eval)
+                dens   = dens / dens.max() * 0.38   # normalise width
+
+                ax.fill_betweenx(
+                    y_eval,
+                    pos - dens,
+                    pos + dens,
+                    color=color,
+                    alpha=0.30 if is_ref else 0.18,
+                    zorder=1,
+                )
+                ax.plot(
+                    pos - dens, y_eval,
+                    color=color, linewidth=0.9 if is_ref else 0.6,
+                    alpha=0.8, zorder=2,
+                )
+                ax.plot(
+                    pos + dens, y_eval,
+                    color=color, linewidth=0.9 if is_ref else 0.6,
+                    alpha=0.8, zorder=2,
+                )
+            except Exception:
+                pass
+
+            # ── Median bar ──
+            med  = np.median(vals)
+            ax.plot(
+                [pos - 0.22, pos + 0.22], [med, med],
+                color=color, linewidth=2.0, zorder=4,
+                solid_capstyle="round",
+            )
+
+            # ── IQR box ──
+            q25, q75 = np.percentile(vals, [25, 75])
+            ax.plot(
+                [pos - 0.12, pos + 0.12], [q25, q25],
+                color=color, linewidth=0.8, alpha=0.6, zorder=3,
+            )
+            ax.plot(
+                [pos - 0.12, pos + 0.12], [q75, q75],
+                color=color, linewidth=0.8, alpha=0.6, zorder=3,
+            )
+            ax.plot(
+                [pos - 0.12, pos - 0.12], [q25, q75],
+                color=color, linewidth=0.6, alpha=0.5, zorder=3,
+            )
+            ax.plot(
+                [pos + 0.12, pos + 0.12], [q25, q75],
+                color=color, linewidth=0.6, alpha=0.5, zorder=3,
+            )
+
+            # ── Strip dots (jittered) ──
+            jitter  = rng.uniform(-0.15, 0.15, size=len(vals))
+            outlier = vals > threshold
+            ax.scatter(
+                pos + jitter[~outlier], vals[~outlier],
+                color=color, s=6, alpha=0.30,
+                edgecolors="none", zorder=3,
+            )
+            # Outliers (beyond threshold) drawn in red with marker
+            if outlier.any():
+                ax.scatter(
+                    pos + jitter[outlier], vals[outlier],
+                    color="#CC2222", s=10, alpha=0.55,
+                    edgecolors="white", linewidths=0.3,
+                    zorder=5, marker="^",
+                )
+
+        # ── Axis formatting ──
+        ax.set_xlim(-0.6, len(model_names) - 0.4)
+        ax.set_ylim(-0.3, x_cap)
+        ax.set_xticks(list(positions))
+        ax.set_xticklabels(model_names, fontsize=7, rotation=30, ha="right")
+        ax.set_ylabel(f"{metric} (mm)", fontsize=8)
+        ax.set_title(f"{cls}  —  {metric}", fontsize=8.5, fontweight="bold", pad=4)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        ax.spines["bottom"].set_linewidth(0.5)
+        ax.spines["left"].set_linewidth(0.5)
+        ax.grid(axis="y", linewidth=0.3, color="#eeeeee", zorder=0)
+        ax.tick_params(labelsize=7)
+
+        # Shade threshold zone
+        ax.axhspan(threshold, x_cap, color="#FFCCCC", alpha=0.18, zorder=0)
+
+# ── Shared legend for violin figure ──
+vln_handles = [
+    mpatches.Patch(color=MODEL_COLORS[m], alpha=0.5,
+                   label=f"{m}{'  ★' if m == REFERENCE_MODEL else ''}")
+    for m in model_names
+]
+vln_handles += [
+    mlines.Line2D([0], [0], color="#CC2222", lw=0.9, linestyle="--",
+                  label="Clinical threshold"),
+    plt.scatter([], [], color="#CC2222", marker="^", s=12, alpha=0.7,
+                label="Exceeds threshold"),
+]
+
+fig2.legend(
+    handles        = vln_handles,
+    loc            = "lower center",
+    ncol           = len(model_names) + 2,
+    frameon        = False,
+    fontsize       = 8,
+    bbox_to_anchor = (0.5, -0.005),
+)
+
+plt.tight_layout(rect=[0, 0.03, 1, 0.996])
+
+vln_png = os.path.join(SAVE_DIR, "ErrorDistribution_Violin_NatureMedicine.png")
+vln_pdf = os.path.join(SAVE_DIR, "ErrorDistribution_Violin_NatureMedicine.pdf")
+plt.savefig(vln_png, dpi=600, bbox_inches="tight", facecolor="white")
+plt.savefig(vln_pdf, format="pdf", bbox_inches="tight", facecolor="white")
+plt.show()
+print(f"Violin figure saved →\n  {vln_png}\n  {vln_pdf}\n")
+
+# =============================================================================
+# 7. SAVE STATISTICS TABLE
+# =============================================================================
+
+df_stats = pd.DataFrame(all_stats)
+stats_path = os.path.join(SAVE_DIR, "ErrorDistribution_Statistics.xlsx")
+
+with pd.ExcelWriter(stats_path, engine="openpyxl") as writer:
+    df_stats.to_excel(writer, index=False, sheet_name="Stats")
+
+    ws = writer.sheets["Stats"]
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
+    hdr_fill = PatternFill("solid", fgColor="1F4E79")
+    hdr_font = Font(bold=True, color="FFFFFF", size=8, name="Helvetica")
+    thin     = Border(
+        left=Side(style="thin", color="CCCCCC"),
+        right=Side(style="thin", color="CCCCCC"),
+        top=Side(style="thin", color="CCCCCC"),
+        bottom=Side(style="thin", color="CCCCCC"),
+    )
+    for cell in ws[1]:
+        cell.fill      = hdr_fill
+        cell.font      = hdr_font
+        cell.alignment = Alignment(horizontal="center")
+        cell.border    = thin
+
+    ref_fill  = PatternFill("solid", fgColor="D5E8D4")
+    alt_fill  = PatternFill("solid", fgColor="EBF3FB")
+    warn_fill = PatternFill("solid", fgColor="FFE6CC")
+
+    for row_idx, (_, row) in enumerate(df_stats.iterrows(), start=2):
+        is_ref = row["Model"] == REFERENCE_MODEL
+        fill   = ref_fill if is_ref else (alt_fill if row_idx % 2 == 0 else PatternFill())
+        for cell in ws[row_idx]:
+            cell.border    = thin
+            cell.alignment = Alignment(horizontal="center")
+            cell.font      = Font(size=8, name="Helvetica",
+                                  bold=is_ref)
+            if fill.fill_type:
+                cell.fill = fill
+
+        # Flag rows where % exceeding threshold is high
+        exceed_col = [c.column for c in ws[row_idx]
+                      if ws.cell(1, c.column).value and
+                      "Pct_exceed" in str(ws.cell(1, c.column).value)]
+        if exceed_col:
+            cell = ws.cell(row_idx, exceed_col[0])
+            try:
+                if float(str(cell.value).replace("%","")) > 20:
+                    cell.fill = warn_fill
+                    cell.font = Font(size=8, name="Helvetica", bold=True, color="CC3300")
+            except Exception:
+                pass
+
+    for col in ws.columns:
+        ws.column_dimensions[col[0].column_letter].width = 16
+
+print(f"Statistics table saved → {stats_path}")
+
+# ── Console clinical interpretation ──
+print("\n" + "=" * 72)
+print("CLINICAL SAFETY SUMMARY  (% patients exceeding threshold)")
+print("=" * 72)
+for metric in BND_METRICS:
+    thr = CLINICAL_THRESHOLDS[metric]
+    print(f"\n{metric}  (threshold = {thr} mm):")
+    print(f"  {'Model':<14} {'Class':<20} {'Median':>8} {'P95':>7} {'>thr%':>7} {'RTR':>6}")
+    print("  " + "-" * 62)
+    sub = df_stats[df_stats["Metric"] == metric].copy()
+    for _, row in sub.sort_values(["Class", "Model"]).iterrows():
+        flag = "  ⚠" if str(row.get(f"Pct_exceed_{thr}mm", 0)) not in ["—", "0.0"] and \
+                        float(str(row.get(f"Pct_exceed_{thr}mm", 0))) > 20 else ""
+        print(
+            f"  {row['Model']:<14} {row['Class']:<20} "
+            f"{row['Median_mm']:>8.2f} {row['P95_mm']:>7.2f} "
+            f"{str(row.get(f'Pct_exceed_{thr}mm','—')):>7} "
+            f"{str(row.get('Right_tail_ratio','—')):>6}{flag}"
+        )
+
+print(f"\nAll outputs in: {SAVE_DIR}")
 
 
 
@@ -7328,31 +6943,64 @@ print(f"Radar plot saved →\n  {png_path}\n  {pdf_path}")
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+############################################### MIXED #################################################################
 
 
 
 
 # =============================================================================
-# RADAR / SPIDER PLOT — Boundary Metrics  (Nature Medicine Style)
+# PAIRED VIOLIN + BOX PLOTS — ONE FIGURE PER METRIC, 7 CLASS SUBPLOTS
+# Nature Medicine Style | 185 mm wide
 # =============================================================================
-# Compares segmentation models across anatomical classes using a boundary
-# distance or overlap metric (HD, HD95, ASD, NSD, RVD, RAVD).
 #
-# Reads the same wide-format Detailed_Per_Instance Excel used by the
-# boundary box plot and clustermap pipelines.
+# LAYOUT — one figure per metric (Dice | IoU | HD95 | ASD):
+#   7 subplots in a row, one per class
+#   Each subplot:
+#     • 5 model positions on X-axis, NO text labels (legend carries names)
+#     • Colored tick marks identify each model position
+#     • Vertical violin (clipped to IQR whiskers — no outlier tail extension)
+#     • IQR box + median line + 1.5×IQR whiskers (data clipped, no outlier dots)
+#     • Tiny, very transparent strip dots within [Q1-1.5IQR, Q3+1.5IQR] only
+#     • Connecting lines: BAT-RM → each baseline (very low opacity)
+#     • Comb-style significance brackets: red if sig, grey if ns
+#     • p < 0.0001 notation
+#   TRUE shared axes:
+#     • Single Y-axis label + tick labels on leftmost subplot only
+#     • Single X-axis tick marks on every subplot but NO model name text
+#     • One shared "Model" x-label centered on the figure
+#   NO scores table, NO N+/N− in plot
 #
-# Key design decisions:
-#   • Radial axis INVERTED for distance metrics (HD, HD95, ASD):
-#     centre = worst, outer ring = best → larger polygon = better always.
-#   • NaN spokes are skipped cleanly (dashed outline + × marker).
-#   • Normalisation is per-class so all spokes use the full ring width.
-#   • Infinite values excluded (boundary penalty for empty masks).
-#   • Colour palette: Wong (2011) colour-blind safe, matches other figures.
-#
-# Nature Medicine compliance:
-#   • 18 cm two-column width, 600 DPI PNG + vector PDF
-#   • Helvetica-first font stack, pdf.fonttype = 42 (TrueType embedding)
-#   • No legend box, sentence-case title, italic subtitle
+# Statistical method:
+#   Paired Wilcoxon signed-rank (scipy.stats.wilcoxon, zero_method="pratt")
+#   Paired Hedges' g + 95% BCa bootstrap CI
 #
 # Dependencies: pandas, numpy, matplotlib, scipy, openpyxl
 # =============================================================================
@@ -7360,47 +7008,60 @@ print(f"Radar plot saved →\n  {png_path}\n  {pdf_path}")
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.lines import Line2D
+import matplotlib.lines as mlines
+import matplotlib.patches as mpatches
+from matplotlib.colors import TwoSlopeNorm
+from scipy.stats import wilcoxon, gaussian_kde
 import os
 import warnings
 
 warnings.filterwarnings("ignore")
 
 # =============================================================================
-# 1. CONFIGURATION  — edit only this section
+# 1. CONFIGURATION
 # =============================================================================
 
-excel_files = [
-    ("BAT-RM",    r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/200 Epochs/boundary_metrics_epoch_200_generated.xlsx'),
-    ("nnUNet",    r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/nnUNet_256/boundary_metrics_nnUNet_100_epochs_generated.xlsx'),
-    ("SegMamba",  r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/200 Epochs/boundary_metrics_epoch_200_generated.xlsx'),
-    ("TransUNet", r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/200 Epochs/comprehensive_metrics_20260429_042527.xlsx'),
-    ("UNETR",     r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/200 Epochs/comprehensive_metrics_20260429_042527.xlsx'),
+REFERENCE_MODEL = "BAT-RM"
+
+excel_files_seg = [
+    ("BAT-RM",    r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/200 Epochs/segmentation_metrics_enhanced_200_epoch_enhanced.xlsx'),
+    ("nnUNet",    r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/134 epochs/segmentation_metrics_detailed_epoch_134_generated.xlsx'),
+    ("SegMamba",  r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/UNET3+_segmentation_metrics_detailed_epoch_200_generated.xlsx'),
+    ("TransUNet", r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/vanilla_unet_segmentation_metrics_detailed_epoch_200_generated.xlsx'),
+    ("UNETR",     r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/nnUNet_256/Segmentation_Cervix_small_Axial_axis_pytorch_detailed_metrics_Generated.xlsx'),
 ]
 
-# ------------------------------------------------------------------------------
-# Metric to plot
-#   Distance (lower = better): "HD" | "HD95" | "ASD"
-#   Overlap  (higher = better): "NSD" | "RVD" | "RAVD"
-# ------------------------------------------------------------------------------
-METRIC          = "HD"
-LOWER_IS_BETTER = True    # True for HD / HD95 / ASD  |  False for NSD
+excel_files_bnd = [
+    ("BAT-RM",    r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/200 Epochs/boundary_metrics_epoch_200_enhanced_v5.xlsx'),
+    ("nnUNet",    r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/134 epochs/boundary_metrics_epoch_134_generated.xlsx'),
+    ("SegMamba",  r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/UNET3+_boundary_metrics_epoch_200_generated.xlsx'),
+    ("TransUNet", r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/vanilla_unet_boundary_metrics_epoch_200_generated.xlsx'),
+    ("UNETR",     r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/nnUNet_256/boundary_metrics_nnUNet_100_epochs_generated.xlsx'),
+]
 
-AGG_FN = "mean"           # patient-level aggregation: "mean" | "median"
+SEG_METRICS     = ["Dice", "IoU", "Recall", "Specificity"]
+BND_METRICS     = ["HD95", "ASD", "NSD", "HD", "RAVD"]
+ALL_METRICS     = SEG_METRICS + BND_METRICS
+LOWER_IS_BETTER = {"HD95", "ASD", "HD", "RVD", "RAVD"}
 
-# Anatomical classes — spokes of the radar (clockwise from top)
 class_list = [
     "BODY", "URINARY BLADDER", "SMALL BOWEL",
     "RECTUM", "FEMORAL HEAD", "GTV", "CTV",
 ]
 
-# Number of concentric grid rings
-N_GRID_RINGS = 5
+CLASS_LABELS = {
+    "BODY":             "Body",
+    "URINARY BLADDER":  "Bladder",
+    "SMALL BOWEL":      "Sm. Bowel",
+    "RECTUM":           "Rectum",
+    "FEMORAL HEAD":     "Fem. Head",
+    "GTV":              "GTV",
+    "CTV":              "CTV",
+}
 
-# ------------------------------------------------------------------------------
-# Colour palette: Wong (2011) colour-blind safe
-# Order must match excel_files above
-# ------------------------------------------------------------------------------
+MAX_LINES = 50
+N_BOOT    = 1000
+
 MODEL_COLORS = {
     "BAT-RM":    "#0077BB",
     "nnUNet":    "#009988",
@@ -7408,21 +7069,894 @@ MODEL_COLORS = {
     "TransUNet": "#CC3311",
     "UNETR":     "#AA4499",
 }
-MODEL_MARKERS = {
-    "BAT-RM":    "o",
-    "nnUNet":    "s",
-    "SegMamba":  "^",
-    "TransUNet": "D",
-    "UNETR":     "P",
-}
 
-FILL_ALPHA = 0.08    # polygon fill transparency
-
-SAVE_DIR = r'I:/Radiotherapy/Cervix/Paper/Result/Quantitative/Boundary'
+SAVE_DIR = r'I:/Radiotherapy/Cervix/Paper/Result/Quantitative/final/mixed/PerMetric_Violin_final'
 os.makedirs(SAVE_DIR, exist_ok=True)
 
 # =============================================================================
-# 2. MATPLOTLIB GLOBAL STYLE  (Nature Medicine)
+# 2. MATPLOTLIB GLOBAL STYLE  (185 mm = 7.283 in)
+# =============================================================================
+
+MM_TO_IN      = 1 / 25.4
+FIG_WIDTH_IN  = 185 * MM_TO_IN   # 7.283 inches
+
+plt.rcParams.update({
+    "font.family":      "sans-serif",
+    "font.sans-serif":  ["Helvetica", "Arial", "DejaVu Sans"],
+    "font.size":        7,
+    "axes.titlesize":   7.5,
+    "axes.labelsize":   7,
+    "xtick.labelsize":  6.0,
+    "ytick.labelsize":  6.0,
+    "axes.linewidth":   0.45,
+    "grid.linewidth":   0.25,
+    "axes.facecolor":   "white",
+    "figure.facecolor": "white",
+    "pdf.fonttype":     42,
+    "ps.fonttype":      42,
+    "figure.dpi":       150,
+    "savefig.dpi":      600,
+})
+
+# =============================================================================
+# 3. DATA LOADING
+# =============================================================================
+
+def load_segmentation(excel_files, metrics, class_list):
+    all_data = []
+    for name, path in excel_files:
+        df = pd.concat(pd.read_excel(path, sheet_name=None), ignore_index=True)
+        for m in metrics:
+            if m in df.columns:
+                df[m] = pd.to_numeric(df[m], errors="coerce")
+        df["Class_Name"] = df["Class_Name"].astype(str).str.upper().str.strip()
+        df = df[~df["Class_Name"].isin(["BACKGROUND", "NAN", "NONE", "", "0"])]
+        df = df[df["Class_Name"].isin([c.upper() for c in class_list])]
+        df["Model"] = name
+        cols = ["Filename", "Class_Name", "Model"] + \
+               [m for m in metrics if m in df.columns]
+        all_data.append(df[cols])
+    return pd.concat(all_data, ignore_index=True)
+
+
+def load_boundary(excel_files, metrics, class_list):
+    all_data = []
+    for name, path in excel_files:
+        df = pd.read_excel(path, sheet_name="Detailed_Per_Instance")
+        file_rows = []
+        for cls in class_list:
+            present = f"{cls}_Present_In_GT"
+            gt_vol  = f"{cls}_GT_Volume"
+            if present in df.columns:
+                sub = df[df[present] == True].copy()
+            elif gt_vol in df.columns:
+                sub = df[df[gt_vol] > 0].copy()
+            else:
+                sub = df.copy()
+            if sub.empty:
+                continue
+            cls_cols  = {"Filename": sub["Filename"].values}
+            any_found = False
+            for m in metrics:
+                col = f"{cls}_{m}"
+                if col not in df.columns:
+                    cls_cols[m] = np.nan
+                    continue
+                vals = pd.to_numeric(sub[col], errors="coerce").values
+                vals = np.where(np.isfinite(vals), vals, np.nan)
+                cls_cols[m] = vals
+                any_found   = True
+            if not any_found:
+                continue
+            tmp = pd.DataFrame(cls_cols)
+            tmp["Class_Name"] = cls.upper().strip()
+            tmp["Model"]      = name
+            tmp = tmp.dropna(subset=metrics, how="all")
+            file_rows.append(tmp)
+        if file_rows:
+            all_data.append(pd.concat(file_rows, ignore_index=True))
+    if not all_data:
+        raise ValueError("No boundary data loaded.")
+    return pd.concat(all_data, ignore_index=True)
+
+
+print("Loading data …")
+df_seg = load_segmentation(excel_files_seg, SEG_METRICS, class_list)
+df_bnd = load_boundary(excel_files_bnd, BND_METRICS, class_list)
+
+df_all = pd.merge(df_seg, df_bnd, on=["Filename", "Class_Name", "Model"], how="outer")
+
+model_names = [m for m, _ in excel_files_seg]
+baselines   = [m for m in model_names if m != REFERENCE_MODEL]
+classes     = [c.upper() for c in class_list]
+
+print(f"Models   : {model_names}")
+print(f"Classes  : {classes}")
+print(f"Patients : {df_all['Filename'].nunique()}\n")
+
+# =============================================================================
+# 4. STATISTICAL HELPERS
+# =============================================================================
+
+def paired_hedges_g(diff):
+    diff = np.array(diff)
+    n = len(diff)
+    if n < 2: return np.nan
+    d = diff.mean() / (diff.std(ddof=1) + 1e-12)
+    return d * (1 - 3 / (4 * (n - 1) - 1))
+
+
+def bootstrap_g_ci(diff, n_boot=N_BOOT, seed=42):
+    diff = np.array(diff)
+    n = len(diff)
+    if n < 3: return np.nan, np.nan
+    rng  = np.random.default_rng(seed)
+    boot = np.array([paired_hedges_g(diff[rng.integers(0, n, n)]) for _ in range(n_boot)])
+    return np.nanpercentile(boot, 2.5), np.nanpercentile(boot, 97.5)
+
+
+def paired_wilcoxon(x_ref, x_bsl):
+    diff = np.array(x_ref) - np.array(x_bsl)
+    if len(diff) < 3 or np.all(diff == 0): return np.nan, np.nan
+    try:
+        return wilcoxon(x_ref, x_bsl, zero_method="pratt")
+    except Exception:
+        return np.nan, np.nan
+
+
+def concordant_discordant(x_ref, x_bsl, lower_is_better):
+    diff = np.array(x_ref) - np.array(x_bsl)
+    tol  = 1e-9
+    if lower_is_better:
+        n_plus  = (diff < -tol).sum()
+        n_minus = (diff >  tol).sum()
+    else:
+        n_plus  = (diff >  tol).sum()
+        n_minus = (diff < -tol).sum()
+    return int(n_plus), int(n_minus), int((np.abs(diff) <= tol).sum())
+
+
+def format_p(p_val):
+    if np.isnan(p_val):  return "p=n/a"
+    if p_val < 0.0001:   return "p<0.0001"
+    return f"p={p_val:.4f}"
+
+
+def p_stars(p):
+    if np.isnan(p): return ""
+    if p < 0.0001:  return "****"
+    if p < 0.001:   return "***"
+    if p < 0.01:    return "**"
+    if p < 0.05:    return "*"
+    return "ns"
+
+
+def iqr_clipped(arr):
+    """Return values clipped to [Q1 - 1.5*IQR, Q3 + 1.5*IQR]."""
+    q25, q75 = np.percentile(arr, [25, 75])
+    iqr = q75 - q25
+    lo  = q25 - 1.5 * iqr
+    hi  = q75 + 1.5 * iqr
+    return arr[(arr >= lo) & (arr <= hi)], lo, hi
+
+
+# =============================================================================
+# 5. COMPUTE SHARED Y-LIMITS PER METRIC
+#    Based on within-fence data range + room for bracket stack
+# =============================================================================
+
+def compute_shared_ylim(metric, classes, df_all, model_names, baselines):
+    all_vals = []
+    for cls in classes:
+        for model in model_names:
+            sub = df_all[
+                (df_all["Model"] == model) &
+                (df_all["Class_Name"] == cls)
+            ][metric].dropna().values.astype(float)
+            sub = sub[np.isfinite(sub)]
+            if len(sub) < 2: continue
+            clipped, _, _ = iqr_clipped(sub)
+            all_vals.extend(clipped.tolist())
+
+    if not all_vals:
+        return (0.0, 1.0)
+
+    y_min   = np.min(all_vals)
+    y_max   = np.max(all_vals)
+    y_range = max(y_max - y_min, 1e-6)
+
+    # Estimate bracket stack in data units using the same point constants.
+    # We don't have an axes object here, so we approximate using the figure height.
+    # This gives enough headroom; the panel itself will adjust via set_ylim.
+    #
+    # Conservative estimate: assume axes occupies ~55% of figure height at 185mm wide.
+    FIG_H_EST_IN = FIG_WIDTH_IN * 0.60        # same as FIG_H_IN used in main loop
+    AX_H_FRAC    = 0.55                        # rough axes fraction of figure height
+    ax_h_in      = FIG_H_EST_IN * AX_H_FRAC
+    data_per_in  = y_range / ax_h_in if ax_h_in > 0 else 1.0
+    pt_to_data   = (1.0 / 72.0) * data_per_in
+
+    slot_h  = BRACKET_SLOT_PT  * pt_to_data
+    base_g  = BRACKET_BASE_PT  * pt_to_data
+    pval_h  = BRACKET_PVAL_PT  * pt_to_data
+    gap3    = BRACKET_GAP3_PT  * pt_to_data
+
+    stack = base_g + len(baselines) * slot_h + pval_h + gap3 + y_range * 0.02
+    return (y_min - y_range * 0.04, y_max + stack)
+
+
+# =============================================================================
+# 6. SINGLE CLASS PANEL
+# =============================================================================
+
+# Fixed bracket spacing in POINTS (absolute, renderer-independent).
+# These are the same for every subplot regardless of data scale.
+BRACKET_TICK_PT   =  2.0   # height of the vertical ticks at each end of bracket
+BRACKET_GAP1_PT   =  1.5   # gap: bracket top → bottom of stars text
+BRACKET_STAR_PT   =  5.0   # reserved height for stars text (fontsize 5.5 pt ≈ 5 pt)
+BRACKET_GAP2_PT   =  1.5   # gap: top of stars → bottom of p-value text
+BRACKET_PVAL_PT   =  4.0   # reserved height for p-value text (fontsize 4 pt)
+BRACKET_GAP3_PT   =  3.0   # gap between top of p-value and bottom of next bracket
+BRACKET_SLOT_PT   = (BRACKET_TICK_PT + BRACKET_GAP1_PT + BRACKET_STAR_PT +
+                     BRACKET_GAP2_PT + BRACKET_PVAL_PT + BRACKET_GAP3_PT)
+BRACKET_BASE_PT   =  4.0   # gap between top of violin data and first bracket
+
+
+def pts_to_data(ax, pts):
+    """Convert a height in points to data-coordinate units for the current axes."""
+    fig = ax.get_figure()
+    # points → inches → display pixels → data units
+    inch_per_pt  = 1.0 / 72.0
+    fig_h_in     = fig.get_figheight()
+    ax_h_frac    = ax.get_position().height          # axes height as fraction of figure
+    ax_h_in      = fig_h_in * ax_h_frac
+    y_lo, y_hi   = ax.get_ylim()
+    data_per_in  = (y_hi - y_lo) / ax_h_in if ax_h_in > 0 else 1.0
+    return pts * inch_per_pt * data_per_in
+
+
+def draw_class_panel(ax, cls_data, metric, lower_is_better, rng,
+                     show_ylabel, shared_ylim):
+    """
+    Draw violin+box+dots for all 5 models in one class subplot.
+    X-ticks: colored squares, NO text labels.
+    Dots: only within 1.5×IQR fence, tiny, very transparent.
+    Whiskers: extend to fence (no outlier dots beyond).
+    Connecting lines: only for patients whose values are BOTH within fence.
+    Brackets: fixed absolute point spacing — identical across all subplots.
+    """
+
+    x_pos = {m: i for i, m in enumerate(model_names)}
+    ref_x = x_pos[REFERENCE_MODEL]
+
+    ref_series = cls_data.get(REFERENCE_MODEL)
+    if ref_series is None or len(ref_series.dropna()) < 3:
+        ax.text(0.5, 0.5, "n/a", ha="center", va="center",
+                fontsize=6, color="#bbbbbb", transform=ax.transAxes)
+        ax.set_xticks([])
+        ax.axis("off")
+        return {}
+
+    stats_out = {}
+    all_plotted_vals = []
+
+    # Store per-model fence bounds for use in connecting-line filtering
+    fence_bounds = {}   # model → (fence_lo, fence_hi)
+
+    # ── Per-model violin + box + strip ──
+    for model in model_names:
+        xi    = x_pos[model]
+        color = MODEL_COLORS[model]
+        ser   = cls_data.get(model)
+        if ser is None: continue
+        arr = ser.dropna().values.astype(float)
+        arr = arr[np.isfinite(arr)]
+        if len(arr) < 2: continue
+
+        clipped, fence_lo, fence_hi = iqr_clipped(arr)
+        fence_bounds[model] = (fence_lo, fence_hi)
+
+        q25, q50, q75 = np.percentile(arr, [25, 50, 75])
+        w_lo = clipped.min() if len(clipped) else q25
+        w_hi = clipped.max() if len(clipped) else q75
+
+        all_plotted_vals.extend(clipped.tolist())
+        all_plotted_vals.extend([q25, q50, q75])
+
+        # Violin — KDE on clipped data only
+        if len(clipped) >= 4:
+            try:
+                kde  = gaussian_kde(clipped, bw_method="scott")
+                y_ev = np.linspace(w_lo, w_hi, 300)
+                dens = kde(y_ev)
+                dens = dens / dens.max() * 0.30
+                ax.fill_betweenx(y_ev, xi - dens, xi + dens,
+                                 color=color, alpha=0.15, zorder=1)
+                ax.plot(xi - dens, y_ev, color=color, lw=0.55, alpha=0.45, zorder=2)
+                ax.plot(xi + dens, y_ev, color=color, lw=0.55, alpha=0.45, zorder=2)
+            except Exception:
+                pass
+
+        # IQR box
+        ax.add_patch(plt.Rectangle(
+            (xi - 0.13, q25), 0.26, q75 - q25,
+            facecolor=color, alpha=0.18,
+            edgecolor=color, lw=0.75, zorder=4,
+        ))
+        # Median line
+        ax.plot([xi - 0.17, xi + 0.17], [q50, q50],
+                color=color, lw=1.8, solid_capstyle="round", zorder=6)
+        # Whiskers
+        ax.plot([xi, xi], [w_lo, q25], color=color, lw=0.6, alpha=0.55, zorder=3)
+        ax.plot([xi, xi], [q75, w_hi], color=color, lw=0.6, alpha=0.55, zorder=3)
+        cap_w = 0.06
+        ax.plot([xi - cap_w, xi + cap_w], [w_lo, w_lo],
+                color=color, lw=0.6, alpha=0.55, zorder=3)
+        ax.plot([xi - cap_w, xi + cap_w], [w_hi, w_hi],
+                color=color, lw=0.6, alpha=0.55, zorder=3)
+
+        # Strip dots — within fence only, tiny + very transparent
+        in_fence = arr[(arr >= fence_lo) & (arr <= fence_hi)]
+        if len(in_fence) > 0:
+            jitter = rng.uniform(-0.08, 0.08, size=len(in_fence))
+            ax.scatter(xi + jitter, in_fence,
+                       color=color, s=2.5, alpha=0.18,
+                       edgecolors="none", zorder=5)
+
+    # ── Connecting lines — ONLY for patients within fence on BOTH sides ──
+    for baseline in baselines:
+        bsl_xi  = x_pos[baseline]
+        bsl_col = MODEL_COLORS[baseline]
+
+        ref_ser = cls_data.get(REFERENCE_MODEL)
+        bsl_ser = cls_data.get(baseline)
+        if ref_ser is None or bsl_ser is None: continue
+
+        merged = pd.concat([ref_ser.rename("ref"),
+                             bsl_ser.rename("bsl")], axis=1).dropna()
+        merged = merged[np.isfinite(merged["ref"]) & np.isfinite(merged["bsl"])]
+        if len(merged) < 3: continue
+
+        ref_arr = merged["ref"].values
+        bsl_arr = merged["bsl"].values
+
+        # ── KEY FIX: filter to only rows where BOTH values are within their fence ──
+        ref_flo, ref_fhi = fence_bounds.get(REFERENCE_MODEL, (-np.inf, np.inf))
+        bsl_flo, bsl_fhi = fence_bounds.get(baseline,        (-np.inf, np.inf))
+        in_fence_mask = (
+            (ref_arr >= ref_flo) & (ref_arr <= ref_fhi) &
+            (bsl_arr >= bsl_flo) & (bsl_arr <= bsl_fhi)
+        )
+        ref_plot = ref_arr[in_fence_mask]
+        bsl_plot = bsl_arr[in_fence_mask]
+        n_plot   = len(ref_plot)
+
+        # Statistics still use all paired data (not fence-filtered)
+        n_all = len(ref_arr)
+        _, p_val          = paired_wilcoxon(ref_arr, bsl_arr)
+        diff_g            = ref_arr - bsl_arr
+        if lower_is_better: diff_g = -diff_g
+        g                 = paired_hedges_g(diff_g)
+        g_lo, g_hi        = bootstrap_g_ci(diff_g, N_BOOT)
+        n_plus, n_minus, ties = concordant_discordant(ref_arr, bsl_arr, lower_is_better)
+
+        stats_out[baseline] = {
+            "n_pairs": n_all, "p_val": p_val, "stars": p_stars(p_val),
+            "g": g, "g_lo": g_lo, "g_hi": g_hi,
+            "n_plus": n_plus, "n_minus": n_minus, "ties": ties,
+        }
+
+        # Draw lines only for in-fence pairs
+        if n_plot == 0: continue
+        idx = np.arange(n_plot)
+        if n_plot > MAX_LINES:
+            idx = rng.choice(n_plot, MAX_LINES, replace=False)
+
+        for i in idx:
+            jx_r = ref_x  + rng.uniform(-0.07, 0.07)
+            jx_b = bsl_xi + rng.uniform(-0.07, 0.07)
+            ax.plot([jx_r, jx_b], [ref_plot[i], bsl_plot[i]],
+                    color=bsl_col, lw=0.30, alpha=0.09, zorder=3)
+
+    # ── Significance brackets — FIXED ABSOLUTE POINT SPACING ──
+    if not all_plotted_vals:
+        return stats_out
+
+    y_max_plot = max(all_plotted_vals)
+    y_min_plot = min(all_plotted_vals)
+
+    # Apply the shared ylim first so pts_to_data conversion is accurate
+    if shared_ylim:
+        ax.set_ylim(shared_ylim[0], shared_ylim[1])
+    else:
+        ax.set_ylim(y_min_plot, y_max_plot)
+
+    # Convert fixed point heights to data units NOW (after ylim is set)
+    tick_h  = pts_to_data(ax, BRACKET_TICK_PT)
+    gap1    = pts_to_data(ax, BRACKET_GAP1_PT)
+    star_h  = pts_to_data(ax, BRACKET_STAR_PT)
+    gap2    = pts_to_data(ax, BRACKET_GAP2_PT)
+    pval_h  = pts_to_data(ax, BRACKET_PVAL_PT)
+    gap3    = pts_to_data(ax, BRACKET_GAP3_PT)
+    base_g  = pts_to_data(ax, BRACKET_BASE_PT)
+    slot_h  = tick_h + gap1 + star_h + gap2 + pval_h + gap3
+
+    y_bracket_base = y_max_plot + base_g
+
+    for bi, baseline in enumerate(baselines):
+        if baseline not in stats_out: continue
+        st    = stats_out[baseline]
+        stars = st["stars"]
+        p_val = st["p_val"]
+        bsl_xi = x_pos[baseline]
+
+        y_b = y_bracket_base + bi * slot_h
+        sig_color = "#CC2222" if stars not in ("ns", "", None) else "#888888"
+
+        # Bracket line with vertical end ticks
+        ax.plot([ref_x, ref_x, bsl_xi, bsl_xi],
+                [y_b, y_b + tick_h, y_b + tick_h, y_b],
+                color=sig_color, lw=0.75, zorder=8)
+
+        mid_x = (ref_x + bsl_xi) / 2
+
+        # Stars — fixed gap above bracket top
+        y_stars = y_b + tick_h + gap1
+        ax.text(mid_x, y_stars,
+                stars if stars else "ns",
+                ha="center", va="bottom",
+                fontsize=5.5, color=sig_color, fontweight="bold", zorder=9)
+
+        # p-value — fixed gap above stars
+        y_pval = y_stars + star_h + gap2
+        ax.text(mid_x, y_pval,
+                format_p(p_val),
+                ha="center", va="bottom",
+                fontsize=4.0, color="#555555", zorder=9)
+
+    # Extend ylim to fit all brackets (recalculate now that slots are in data units)
+    top_needed = y_bracket_base + len(baselines) * slot_h + pval_h + gap3
+    y_lo = shared_ylim[0] if shared_ylim else (y_min_plot - base_g)
+    ax.set_ylim(y_lo, max(shared_ylim[1] if shared_ylim else top_needed, top_needed))
+
+    # ── X-axis: colored square markers only, NO text ──
+    ax.set_xticks(list(x_pos.values()))
+    ax.set_xticklabels([""] * len(model_names))
+    ax_ymin = ax.get_ylim()[0]
+    for model, xi in x_pos.items():
+        color = MODEL_COLORS[model]
+        ax.plot(xi, ax_ymin, marker="s",
+                markersize=4.5 if model == REFERENCE_MODEL else 3.5,
+                color=color, clip_on=False, zorder=10,
+                markeredgewidth=0.0)
+
+    ax.set_xlim(-0.55, len(model_names) - 0.45)
+
+    if not show_ylabel:
+        ax.tick_params(axis="y", left=True, labelleft=False)
+    else:
+        ax.tick_params(axis="y", left=True, labelleft=True, labelsize=6)
+
+    ax.tick_params(axis="x", bottom=True, labelbottom=False, length=0)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.spines["left"].set_linewidth(0.4)
+    ax.spines["bottom"].set_linewidth(0.4)
+    ax.grid(axis="y", linewidth=0.22, color="#eeeeee", zorder=0)
+
+    return stats_out
+
+
+# =============================================================================
+# 7. MAIN LOOP — one figure per metric
+# =============================================================================
+
+rng = np.random.default_rng(42)
+summary_records = []
+
+for metric in ALL_METRICS:
+    lower_b = metric in LOWER_IS_BETTER
+
+    # Global y-limits for this metric (fence-based, shared across all classes)
+    ylim = compute_shared_ylim(metric, classes, df_all, model_names, baselines)
+
+    # Figure: 1 row × 7 columns, sharey=True for a single shared y-axis
+    FIG_H_IN = FIG_WIDTH_IN * 0.60   # ~111 mm tall
+
+    fig, axes = plt.subplots(
+        1, len(classes),
+        figsize=(FIG_WIDTH_IN, FIG_H_IN),
+        squeeze=True,
+        sharey=True,    # ← true shared y-axis
+    )
+    # Remove inter-subplot horizontal spacing so they look like one panel
+    fig.subplots_adjust(wspace=0.06)
+
+    all_stats_metric = {}
+
+    for ci, cls in enumerate(classes):
+        ax = axes[ci]
+        show_ylabel = (ci == 0)
+
+        # Build per-model Series indexed by Filename
+        cls_data = {}
+        for model in model_names:
+            sub = df_all[
+                (df_all["Model"] == model) &
+                (df_all["Class_Name"] == cls)
+            ][["Filename", metric]].dropna()
+            if not sub.empty:
+                cls_data[model] = sub.set_index("Filename")[metric]
+
+        stats_out = draw_class_panel(
+            ax, cls_data, metric, lower_b, rng,
+            show_ylabel=show_ylabel,
+            shared_ylim=ylim,
+        )
+        all_stats_metric[cls] = stats_out
+
+        # Class title above each subplot
+        ax.set_title(CLASS_LABELS.get(cls, cls), fontsize=7, fontweight="bold", pad=3)
+
+        # Collect summary records
+        for baseline, st in stats_out.items():
+            ref_ser = cls_data.get(REFERENCE_MODEL)
+            bsl_ser = cls_data.get(baseline)
+            ref_med = float(np.median(ref_ser.dropna().values)) if ref_ser is not None else np.nan
+            bsl_med = float(np.median(bsl_ser.dropna().values)) if bsl_ser is not None else np.nan
+            summary_records.append({
+                "Metric":   metric,
+                "Class":    cls,
+                "Baseline": baseline,
+                "N_pairs":  st["n_pairs"],
+                "Ref_median":  round(ref_med, 4),
+                "Bsl_median":  round(bsl_med, 4),
+                "N_plus":   st["n_plus"],
+                "N_minus":  st["n_minus"],
+                "Ties":     st["ties"],
+                "Win_pct_ref": round(100 * st["n_plus"] / max(st["n_pairs"], 1), 1),
+                "Paired_Wilcoxon_p": round(st["p_val"], 6) if not np.isnan(st["p_val"]) else np.nan,
+                "Stars":    st["stars"],
+                "Hedges_g": round(st["g"],    3) if not np.isnan(st["g"])    else np.nan,
+                "g_CI_lo":  round(st["g_lo"], 3) if not np.isnan(st["g_lo"]) else np.nan,
+                "g_CI_hi":  round(st["g_hi"], 3) if not np.isnan(st["g_hi"]) else np.nan,
+            })
+
+    # ── Single shared Y-axis label (leftmost subplot already has tick labels) ──
+    axes[0].set_ylabel(metric, fontsize=7, labelpad=4)
+
+    # ── Single shared X-axis label centered on figure ──
+    fig.text(0.5, 0.01, "Model", ha="center", va="bottom", fontsize=7)
+
+    # ── Legend: model color patches + bracket color meaning ──
+    legend_handles = []
+    for model in model_names:
+        marker = "★ " if model == REFERENCE_MODEL else ""
+        legend_handles.append(
+            mpatches.Patch(facecolor=MODEL_COLORS[model],
+                           edgecolor="none", alpha=0.75,
+                           label=f"{marker}{model}")
+        )
+    legend_handles += [
+        mlines.Line2D([0], [0], color="#CC2222", lw=1.0, label="Sig. (p<0.05)"),
+        mlines.Line2D([0], [0], color="#888888", lw=1.0, label="n.s."),
+        mlines.Line2D([0], [0], color="#555555", lw=0.4, alpha=0.3,
+                      label="Paired lines"),
+    ]
+
+    fig.legend(
+        handles        = legend_handles,
+        loc            = "lower center",
+        ncol           = len(legend_handles),
+        frameon        = False,
+        fontsize       = 6.0,
+        bbox_to_anchor = (0.5, -0.06),
+        handlelength   = 1.2,
+        handletextpad  = 0.4,
+        columnspacing  = 0.8,
+    )
+
+    direction = "↓ lower = better" if lower_b else "↑ higher = better"
+    fig.suptitle(
+        f"{metric}  ({direction})  |  ★ = {REFERENCE_MODEL} (reference)  |  "
+        f"Brackets: paired Wilcoxon  |  g = Hedges' g [95% BCa CI]",
+        fontsize=6.0, fontweight="bold", y=1.02,
+    )
+
+    plt.tight_layout(rect=[0, 0.06, 1, 1.00])
+
+    png_path = os.path.join(SAVE_DIR, f"PerMetric_{metric}.png")
+    pdf_path = os.path.join(SAVE_DIR, f"PerMetric_{metric}.pdf")
+    plt.savefig(png_path, dpi=600, bbox_inches="tight", facecolor="white")
+    plt.savefig(pdf_path, format="pdf", bbox_inches="tight", facecolor="white")
+    plt.show()
+    plt.close()
+    print(f"Saved → {png_path}")
+
+# =============================================================================
+# 8. SUMMARY HEATMAP
+# =============================================================================
+
+df_sum = pd.DataFrame(summary_records)
+
+df_sum["Med_diff_signed"] = df_sum.apply(
+    lambda r: (r["Ref_median"] - r["Bsl_median"])
+              * (-1 if r["Metric"] in LOWER_IS_BETTER else 1),
+    axis=1,
+)
+
+row_labels = [f"{CLASS_LABELS.get(cls, cls)}\nvs {bsl}"
+              for cls in classes for bsl in baselines]
+n_rows_h   = len(classes) * len(baselines)
+
+diff_mat = np.full((n_rows_h, len(ALL_METRICS)), np.nan)
+star_mat = [["" for _ in ALL_METRICS] for _ in range(n_rows_h)]
+g_mat    = np.full((n_rows_h, len(ALL_METRICS)), np.nan)
+
+for ri, (cls, bsl) in enumerate([(c, b) for c in classes for b in baselines]):
+    sub = df_sum[(df_sum["Class"] == cls) & (df_sum["Baseline"] == bsl)]
+    for ci, metric in enumerate(ALL_METRICS):
+        row = sub[sub["Metric"] == metric]
+        if row.empty: continue
+        diff_mat[ri, ci] = row.iloc[0]["Med_diff_signed"]
+        star_mat[ri][ci] = row.iloc[0]["Stars"]
+        g_mat[ri, ci]    = row.iloc[0]["Hedges_g"]
+
+v_abs = np.nanmax(np.abs(diff_mat)) if np.any(np.isfinite(diff_mat)) else 1.0
+
+FIG5_H = max(5.0, n_rows_h * 0.50 + 2.0)
+fig5, ax5 = plt.subplots(figsize=(FIG_WIDTH_IN, FIG5_H))
+
+norm5 = TwoSlopeNorm(vmin=-v_abs, vcenter=0, vmax=v_abs)
+im5   = ax5.imshow(diff_mat, cmap=plt.cm.RdBu, norm=norm5, aspect="auto")
+
+for ri in range(n_rows_h):
+    for ci, metric in enumerate(ALL_METRICS):
+        v  = diff_mat[ri, ci]
+        st = star_mat[ri][ci]
+        g  = g_mat[ri, ci]
+        if np.isnan(v):
+            ax5.text(ci, ri, "—", ha="center", va="center", fontsize=6, color="#aaaaaa")
+            continue
+        txt_col = "white" if abs(v) > v_abs * 0.6 else "#111111"
+        ax5.text(ci, ri - 0.12, f"{v:+.3f}",
+                 ha="center", va="center", fontsize=6.5, color=txt_col, fontweight="bold")
+        parts = []
+        if st and st != "ns": parts.append(st)
+        if not np.isnan(g):   parts.append(f"g={g:+.2f}")
+        if parts:
+            ax5.text(ci, ri + 0.25, "  ".join(parts),
+                     ha="center", va="center", fontsize=4.8, color=txt_col)
+
+for gi in range(len(classes)):
+    y_sep = gi * len(baselines) - 0.5
+    if y_sep > -0.5:
+        ax5.axhline(y_sep, color="#333333", lw=1.0, zorder=5)
+
+for k in range(len(ALL_METRICS) + 1):
+    ax5.axvline(k - 0.5, color="#cccccc", lw=0.4)
+for k in range(n_rows_h + 1):
+    ax5.axhline(k - 0.5, color="#cccccc", lw=0.4)
+
+ax5.set_xticks(range(len(ALL_METRICS)))
+ax5.set_xticklabels(ALL_METRICS, fontsize=8, fontweight="bold")
+ax5.set_yticks(range(n_rows_h))
+ax5.set_yticklabels(row_labels, fontsize=6.5)
+ax5.set_title(
+    f"Summary: signed median difference  ({REFERENCE_MODEL} − baseline)\n"
+    "Red = reference better  |  Blue = baseline better  |  "
+    "Distance metrics sign-flipped",
+    fontsize=7.5, fontweight="bold", pad=5,
+)
+ax5.tick_params(length=0)
+cb5 = plt.colorbar(im5, ax=ax5, fraction=0.025, pad=0.03)
+cb5.ax.tick_params(labelsize=6.5)
+cb5.set_label(f"{REFERENCE_MODEL} better → / ← baseline better", fontsize=6.5)
+
+plt.tight_layout()
+sum_png = os.path.join(SAVE_DIR, "PerMetric_SummaryHeatmap.png")
+sum_pdf = os.path.join(SAVE_DIR, "PerMetric_SummaryHeatmap.pdf")
+plt.savefig(sum_png, dpi=600, bbox_inches="tight", facecolor="white")
+plt.savefig(sum_pdf, format="pdf", bbox_inches="tight", facecolor="white")
+plt.show()
+plt.close()
+print(f"Saved summary heatmap → {sum_png}")
+
+# =============================================================================
+# 9. EXCEL STATISTICS TABLE
+# =============================================================================
+
+stats_path = os.path.join(SAVE_DIR, "PerMetric_Statistics.xlsx")
+
+with pd.ExcelWriter(stats_path, engine="openpyxl") as writer:
+    df_sum.to_excel(writer, index=False, sheet_name="PairedStats")
+    ws = writer.sheets["PairedStats"]
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
+    thin      = Border(**{s: Side(style="thin", color="CCCCCC")
+                          for s in ("left","right","top","bottom")})
+    hdr_fill  = PatternFill("solid", fgColor="1F4E79")
+    hdr_font  = Font(bold=True, color="FFFFFF", size=8, name="Helvetica")
+    sig_fill  = PatternFill("solid", fgColor="D5E8D4")
+    ns_fill   = PatternFill("solid", fgColor="F8F8F8")
+    alt_fill  = PatternFill("solid", fgColor="EBF3FB")
+    warn_fill = PatternFill("solid", fgColor="FFE6CC")
+
+    for cell in ws[1]:
+        cell.fill = hdr_fill; cell.font = hdr_font
+        cell.alignment = Alignment(horizontal="center"); cell.border = thin
+
+    for row_idx, (_, row) in enumerate(df_sum.iterrows(), start=2):
+        stars   = row.get("Stars", "")
+        win_pct = row.get("Win_pct_ref", 50)
+        if stars not in ("ns", "", None) and not pd.isna(stars):
+            fill = sig_fill if win_pct >= 50 else warn_fill
+        else:
+            fill = alt_fill if row_idx % 2 == 0 else ns_fill
+        for cell in ws[row_idx]:
+            cell.border = thin
+            cell.alignment = Alignment(horizontal="center")
+            cell.font = Font(size=8, name="Helvetica")
+            cell.fill = fill
+
+    for col in ws.columns:
+        ws.column_dimensions[col[0].column_letter].width = 16
+
+print(f"Statistics saved → {stats_path}")
+
+# =============================================================================
+# 10. CONSOLE REPORT
+# =============================================================================
+
+print("\n" + "=" * 78)
+print(f"PAIRED STATISTICS REPORT  ({REFERENCE_MODEL} vs baselines)")
+print("=" * 78)
+
+for metric in ALL_METRICS:
+    print(f"\n{metric}:")
+    sub = df_sum[df_sum["Metric"] == metric]
+    print(f"  {'Class':<22} {'Baseline':<12} {'N':>5} "
+          f"{'N+':>5} {'N−':>5} {'Win%':>7} {'p':>12} {'g':>8}")
+    print("  " + "-" * 78)
+    for _, row in sub.sort_values(["Class", "Baseline"]).iterrows():
+        print(
+            f"  {row['Class']:<22} {row['Baseline']:<12} "
+            f"{int(row['N_pairs']):>5} "
+            f"{int(row['N_plus']):>5} "
+            f"{int(row['N_minus']):>5} "
+            f"{row['Win_pct_ref']:>6.1f}% "
+            f"{format_p(row.get('Paired_Wilcoxon_p', np.nan)):>12} "
+            f"{str(row.get('Hedges_g','—')):>8}"
+            f"  {row['Stars']}"
+        )
+
+print(f"\nAll outputs saved in: {SAVE_DIR}")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# =============================================================================
+# PAIRED VIOLIN + BOX PLOTS — ALL 5 MODELS PER METRIC, HORIZONTAL LAYOUT
+# Nature Medicine Style
+# =============================================================================
+#
+# LAYOUT — one figure per class:
+#   4 subplots side by side: Dice | IoU | HD95 | ASD
+#   Each subplot:
+#     • All 5 models on X-axis (BAT-RM first, then 4 baselines)
+#     • Vertical violins + IQR box + strip dots per model
+#     • Patient connecting lines: BAT-RM → each baseline
+#       coloured by baseline model colour (each pair its own colour)
+#     • Comb-style significance brackets from BAT-RM to each baseline
+#       stacked at increasing heights, red if sig, grey if ns
+#     • One combined inset stats table: all 5 models
+#       Columns: Model | Median | IQR | N+ | N− | p | g [CI]
+#
+# Statistical method:
+#   Paired Wilcoxon signed-rank (scipy.stats.wilcoxon, zero_method="pratt")
+#   Paired Hedges' g = mean(diff)/SD(diff) × correction
+#   95% CI via BCa bootstrap (n=1000)
+#
+# Dependencies: pandas, numpy, matplotlib, scipy, openpyxl
+# =============================================================================
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+import matplotlib.lines as mlines
+from scipy.stats import wilcoxon, gaussian_kde
+import os
+import warnings
+
+warnings.filterwarnings("ignore")
+
+# =============================================================================
+# 1. CONFIGURATION
+# =============================================================================
+
+REFERENCE_MODEL = "BAT-RM"
+
+excel_files_seg = [
+    ("BAT-RM",    r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/200 Epochs/segmentation_metrics_enhanced_200_epoch_enhanced.xlsx'),
+    ("nnUNet",    r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/134 epochs/segmentation_metrics_detailed_epoch_134_generated.xlsx'),
+    ("SegMamba",  r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/UNET3+_segmentation_metrics_detailed_epoch_200_generated.xlsx'),
+    ("TransUNet", r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/vanilla_unet_segmentation_metrics_detailed_epoch_200_generated.xlsx'),
+    ("UNETR",     r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/nnUNet_256/Segmentation_Cervix_small_Axial_axis_pytorch_detailed_metrics_Generated.xlsx'),
+]
+
+excel_files_bnd = [
+    ("BAT-RM",    r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/200 Epochs/boundary_metrics_epoch_200_enhanced_v5.xlsx'),
+    ("nnUNet",    r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/134 epochs/boundary_metrics_epoch_134_generated.xlsx'),
+    ("SegMamba",  r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/UNET3+_boundary_metrics_epoch_200_generated.xlsx'),
+    ("TransUNet", r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/vanilla_unet_boundary_metrics_epoch_200_generated.xlsx'),
+    ("UNETR",     r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/nnUNet_256/boundary_metrics_nnUNet_100_epochs_generated.xlsx'),
+]
+
+SEG_METRICS     = ["Dice", "IoU","Recall", "Specificity"]
+BND_METRICS     = ["HD95", "ASD"]
+ALL_METRICS     = SEG_METRICS + BND_METRICS
+LOWER_IS_BETTER = {"HD95", "ASD", "HD", "RVD", "RAVD"}
+
+class_list = [
+    "BODY", "URINARY BLADDER", "SMALL BOWEL",
+    "RECTUM", "FEMORAL HEAD", "GTV", "CTV",
+]
+
+MAX_LINES = 60
+N_BOOT    = 1000
+
+# Model colours — BAT-RM is the anchor
+MODEL_COLORS = {
+    "BAT-RM":    "#0077BB",
+    "nnUNet":    "#009988",
+    "SegMamba":  "#EE7733",
+    "TransUNet": "#CC3311",
+    "UNETR":     "#AA4499",
+}
+
+SAVE_DIR = r'I:/Radiotherapy/Cervix/Paper/Result/Quantitative/Final/Mixed/PairedViolin_Horizontal'
+os.makedirs(SAVE_DIR, exist_ok=True)
+
+# =============================================================================
+# 2. MATPLOTLIB GLOBAL STYLE
 # =============================================================================
 
 plt.rcParams.update({
@@ -7431,373 +7965,1569 @@ plt.rcParams.update({
     "font.size":        9,
     "axes.titlesize":   10,
     "axes.labelsize":   9,
-    "xtick.labelsize":  8,
+    "xtick.labelsize":  8.5,
     "ytick.labelsize":  8,
-    "legend.fontsize":  8.5,
     "axes.linewidth":   0.6,
-    "grid.linewidth":   0.4,
-    "lines.linewidth":  1.4,
+    "grid.linewidth":   0.35,
     "axes.facecolor":   "white",
     "figure.facecolor": "white",
-    "grid.color":       "#cccccc",
-    "grid.alpha":       0.7,
+    "pdf.fonttype":     42,
+    "ps.fonttype":      42,
     "figure.dpi":       150,
     "savefig.dpi":      600,
-    "pdf.fonttype":     42,     # TrueType embedding — required by Nature
-    "ps.fonttype":      42,
 })
 
 # =============================================================================
-# 3. DATA LOADING & CLEANING
-# =============================================================================
-# Wide-format sheet: one row = one patient, columns = CLASS_METRIC.
-# Presence filter: CLASS_Present_In_GT (bool) or CLASS_GT_Volume > 0.
-# Infinite values dropped — boundary penalty for empty predicted masks.
+# 3. DATA LOADING
 # =============================================================================
 
-all_data = []
+def load_segmentation(excel_files, metrics, class_list):
+    all_data = []
+    for name, path in excel_files:
+        df = pd.concat(pd.read_excel(path, sheet_name=None), ignore_index=True)
+        for m in metrics:
+            if m in df.columns:
+                df[m] = pd.to_numeric(df[m], errors="coerce")
+        df["Class_Name"] = df["Class_Name"].astype(str).str.upper().str.strip()
+        df = df[~df["Class_Name"].isin(["BACKGROUND", "NAN", "NONE", "", "0"])]
+        df = df[df["Class_Name"].isin([c.upper() for c in class_list])]
+        df["Model"] = name
+        cols = ["Filename", "Class_Name", "Model"] + \
+               [m for m in metrics if m in df.columns]
+        all_data.append(df[cols])
+    return pd.concat(all_data, ignore_index=True)
 
-for name, path in excel_files:
-    df = pd.read_excel(path, sheet_name="Detailed_Per_Instance")
 
-    rows = []
-    for cls in class_list:
-        col     = f"{cls}_{METRIC}"
-        present = f"{cls}_Present_In_GT"
-        gt_vol  = f"{cls}_GT_Volume"
+def load_boundary(excel_files, metrics, class_list):
+    all_data = []
+    for name, path in excel_files:
+        df = pd.read_excel(path, sheet_name="Detailed_Per_Instance")
+        file_rows = []
+        for cls in class_list:
+            present = f"{cls}_Present_In_GT"
+            gt_vol  = f"{cls}_GT_Volume"
+            if present in df.columns:
+                sub = df[df[present] == True].copy()
+            elif gt_vol in df.columns:
+                sub = df[df[gt_vol] > 0].copy()
+            else:
+                sub = df.copy()
+            if sub.empty:
+                continue
+            cls_cols  = {"Filename": sub["Filename"].values}
+            any_found = False
+            for m in metrics:
+                col = f"{cls}_{m}"
+                if col not in df.columns:
+                    cls_cols[m] = np.nan
+                    continue
+                vals = pd.to_numeric(sub[col], errors="coerce").values
+                vals = np.where(np.isfinite(vals), vals, np.nan)
+                cls_cols[m] = vals
+                any_found   = True
+            if not any_found:
+                continue
+            tmp = pd.DataFrame(cls_cols)
+            tmp["Class_Name"] = cls.upper().strip()
+            tmp["Model"]      = name
+            tmp = tmp.dropna(subset=metrics, how="all")
+            file_rows.append(tmp)
+        if file_rows:
+            all_data.append(pd.concat(file_rows, ignore_index=True))
+    if not all_data:
+        raise ValueError("No boundary data loaded.")
+    return pd.concat(all_data, ignore_index=True)
 
-        if col not in df.columns:
+
+print("Loading data …")
+df_seg = load_segmentation(excel_files_seg, SEG_METRICS, class_list)
+df_bnd = load_boundary(excel_files_bnd, BND_METRICS, class_list)
+
+df_all = pd.merge(
+    df_seg, df_bnd,
+    on=["Filename", "Class_Name", "Model"],
+    how="outer",
+)
+
+model_names = [m for m, _ in excel_files_seg]   # order as specified
+baselines   = [m for m in model_names if m != REFERENCE_MODEL]
+classes     = sorted(df_all["Class_Name"].dropna().unique())
+
+print(f"Models   : {model_names}")
+print(f"Classes  : {classes}")
+print(f"Metrics  : {ALL_METRICS}")
+print(f"Patients : {df_all['Filename'].nunique()}\n")
+
+# =============================================================================
+# 4. STATISTICAL HELPERS
+# =============================================================================
+
+def paired_hedges_g(diff):
+    diff = np.array(diff)
+    n    = len(diff)
+    if n < 2:
+        return np.nan
+    d = diff.mean() / (diff.std(ddof=1) + 1e-12)
+    j = 1 - 3 / (4 * (n - 1) - 1)
+    return d * j
+
+
+def bootstrap_g_ci(diff, n_boot=N_BOOT, seed=42):
+    diff = np.array(diff)
+    n    = len(diff)
+    if n < 3:
+        return np.nan, np.nan
+    rng  = np.random.default_rng(seed)
+    boot = np.array([
+        paired_hedges_g(diff[rng.integers(0, n, n)])
+        for _ in range(n_boot)
+    ])
+    return np.nanpercentile(boot, 2.5), np.nanpercentile(boot, 97.5)
+
+
+def paired_wilcoxon(x_ref, x_bsl):
+    diff = np.array(x_ref) - np.array(x_bsl)
+    if len(diff) < 3 or np.all(diff == 0):
+        return np.nan, np.nan
+    try:
+        stat, p = wilcoxon(x_ref, x_bsl, zero_method="pratt")
+        return stat, p
+    except Exception:
+        return np.nan, np.nan
+
+
+def concordant_discordant(x_ref, x_bsl, lower_is_better):
+    diff = np.array(x_ref) - np.array(x_bsl)
+    tol  = 1e-9
+    if lower_is_better:
+        n_plus  = (diff < -tol).sum()
+        n_minus = (diff >  tol).sum()
+    else:
+        n_plus  = (diff >  tol).sum()
+        n_minus = (diff < -tol).sum()
+    ties = (np.abs(diff) <= tol).sum()
+    return int(n_plus), int(n_minus), int(ties)
+
+
+def p_stars(p):
+    if np.isnan(p):  return ""
+    if p < 0.0001:   return "****"
+    if p < 0.001:    return "***"
+    if p < 0.01:     return "**"
+    if p < 0.05:     return "*"
+    return "ns"
+
+
+# =============================================================================
+# 5. SINGLE METRIC PANEL DRAWING FUNCTION
+# =============================================================================
+# X-axis: all 5 models (BAT-RM at position 0, baselines at 1..4)
+# Connecting lines: BAT-RM dot → each baseline dot, coloured by baseline
+# Brackets: comb from BAT-RM (pos 0) to each baseline (pos 1..4), stacked heights
+
+def draw_metric_panel(ax, cls_data, metric, lower_is_better, rng):
+    """
+    Draw one metric panel with all 5 models.
+
+    cls_data : dict  { model_name: array_of_values_per_patient }
+               where patient order is aligned (same index = same patient)
+               Key: model_name, Value: pd.Series indexed by Filename
+    """
+
+    x_positions = {m: i for i, m in enumerate(model_names)}
+    ref_x       = x_positions[REFERENCE_MODEL]
+
+    # ── Collect per-model arrays (all patients that have ref data) ──
+    ref_series = cls_data.get(REFERENCE_MODEL)
+    if ref_series is None or len(ref_series.dropna()) < 3:
+        ax.text(0.5, 0.5, "Insufficient data",
+                ha="center", va="center",
+                fontsize=8, color="#aaaaaa",
+                transform=ax.transAxes)
+        ax.axis("off")
+        return {}
+
+    stats_out = {}   # baseline → stats dict
+
+    # Global y range for bracket heights
+    all_vals = []
+
+    # ── Draw violin + box + dots per model ──
+    for model in model_names:
+        xi    = x_positions[model]
+        color = MODEL_COLORS[model]
+        ser   = cls_data.get(model)
+        if ser is None:
+            continue
+        arr = ser.dropna().values.astype(float)
+        arr = arr[np.isfinite(arr)]
+        if len(arr) < 2:
+            continue
+        all_vals.extend(arr.tolist())
+
+        # Violin
+        if len(arr) >= 4:
+            try:
+                kde  = gaussian_kde(arr, bw_method="scott")
+                y_ev = np.linspace(arr.min(), arr.max(), 300)
+                dens = kde(y_ev)
+                dens = dens / dens.max() * 0.36
+                ax.fill_betweenx(y_ev, xi - dens, xi + dens,
+                                 color=color, alpha=0.18, zorder=1)
+                ax.plot(xi - dens, y_ev, color=color, lw=0.7, alpha=0.6, zorder=2)
+                ax.plot(xi + dens, y_ev, color=color, lw=0.7, alpha=0.6, zorder=2)
+            except Exception:
+                pass
+
+        # IQR box + median + whiskers
+        q25, q50, q75 = np.percentile(arr, [25, 50, 75])
+        p05, p95      = np.percentile(arr, [5, 95])
+        ax.add_patch(plt.Rectangle(
+            (xi - 0.15, q25), 0.30, q75 - q25,
+            facecolor=color, alpha=0.22,
+            edgecolor=color, lw=0.9, zorder=4,
+        ))
+        ax.plot([xi - 0.20, xi + 0.20], [q50, q50],
+                color=color, lw=2.2, solid_capstyle="round", zorder=6)
+        ax.plot([xi, xi], [p05, q25], color=color, lw=0.8, alpha=0.6, zorder=3)
+        ax.plot([xi, xi], [q75, p95], color=color, lw=0.8, alpha=0.6, zorder=3)
+        ax.plot([xi - 0.08, xi + 0.08], [p05, p05],
+                color=color, lw=0.8, alpha=0.6, zorder=3)
+        ax.plot([xi - 0.08, xi + 0.08], [p95, p95],
+                color=color, lw=0.8, alpha=0.6, zorder=3)
+
+        # Strip dots
+        jitter = rng.uniform(-0.10, 0.10, size=len(arr))
+        ax.scatter(xi + jitter, arr,
+                   color=color, s=8, alpha=0.45,
+                   edgecolors="white", linewidths=0.2, zorder=5)
+
+    # ── Connecting lines: BAT-RM → each baseline ──
+    # Build aligned pairs per baseline
+    for baseline in baselines:
+        bsl_color = MODEL_COLORS[baseline]
+        bsl_xi    = x_positions[baseline]
+
+        ref_ser = cls_data.get(REFERENCE_MODEL)
+        bsl_ser = cls_data.get(baseline)
+        if ref_ser is None or bsl_ser is None:
             continue
 
-        if present in df.columns:
-            sub = df[df[present] == True][["Filename", col]].copy()
-        elif gt_vol in df.columns:
-            sub = df[df[gt_vol] > 0][["Filename", col]].copy()
+        merged = pd.concat([ref_ser.rename("ref"),
+                             bsl_ser.rename("bsl")], axis=1).dropna()
+        merged = merged[np.isfinite(merged["ref"]) & np.isfinite(merged["bsl"])]
+        if len(merged) < 3:
+            continue
+
+        ref_arr = merged["ref"].values
+        bsl_arr = merged["bsl"].values
+        n       = len(ref_arr)
+
+        indices = np.arange(n)
+        if n > MAX_LINES:
+            indices = rng.choice(n, MAX_LINES, replace=False)
+
+        tol = 1e-9
+        for idx in indices:
+            rv, bv = ref_arr[idx], bsl_arr[idx]
+            if lower_is_better:
+                ref_wins = rv < bv - tol
+            else:
+                ref_wins = rv > bv + tol
+
+            alpha = 0.30 if ref_wins else 0.22
+            lw    = 0.45
+
+            jx_ref = ref_x  + rng.uniform(-0.08, 0.08)
+            jx_bsl = bsl_xi + rng.uniform(-0.08, 0.08)
+            ax.plot([jx_ref, jx_bsl], [rv, bv],
+                    color=bsl_color, lw=lw, alpha=alpha, zorder=3)
+
+        # ── Per-pair statistics ──
+        _, p_val           = paired_wilcoxon(ref_arr, bsl_arr)
+        diff_for_g         = ref_arr - bsl_arr
+        if lower_is_better:
+            diff_for_g = -diff_for_g
+        g                  = paired_hedges_g(diff_for_g)
+        g_lo, g_hi         = bootstrap_g_ci(diff_for_g, N_BOOT)
+        n_plus, n_minus, ties = concordant_discordant(ref_arr, bsl_arr,
+                                                       lower_is_better)
+        stars_val          = p_stars(p_val)
+
+        stats_out[baseline] = {
+            "n_pairs": n, "p_val": p_val, "stars": stars_val,
+            "g": g, "g_lo": g_lo, "g_hi": g_hi,
+            "n_plus": n_plus, "n_minus": n_minus, "ties": ties,
+        }
+
+    # ── Significance brackets — comb from BAT-RM to each baseline ──
+    if not all_vals:
+        return stats_out
+
+    y_max    = max(all_vals)
+    y_min    = min(all_vals)
+    y_range  = (y_max - y_min) if y_max > y_min else 1.0
+
+    bracket_step = y_range * 0.10   # vertical gap between stacked brackets
+    y_bracket_base = y_max + y_range * 0.07
+
+    for bi, baseline in enumerate(baselines):
+        if baseline not in stats_out:
+            continue
+        st     = stats_out[baseline]
+        stars  = st["stars"]
+        p_val  = st["p_val"]
+        bsl_xi = x_positions[baseline]
+
+        y_b    = y_bracket_base + bi * bracket_step
+        sig_color = "#CC2222" if stars not in ("ns", "", None) else "#888888"
+
+        # Bracket: |_____|
+        ax.plot([ref_x, ref_x, bsl_xi, bsl_xi],
+                [y_b, y_b + y_range * 0.015,
+                 y_b + y_range * 0.015, y_b],
+                color=sig_color, lw=0.85, zorder=8)
+
+        mid_x = (ref_x + bsl_xi) / 2
+        # Stars
+        ax.text(mid_x, y_b + y_range * 0.022,
+                stars if stars else "ns",
+                ha="center", va="bottom",
+                fontsize=7, color=sig_color, fontweight="bold", zorder=9)
+        # p-value numeric
+        p_txt = f"p={p_val:.4f}" if not np.isnan(p_val) else "p=n/a"
+        ax.text(mid_x, y_b + y_range * 0.065,
+                p_txt,
+                ha="center", va="bottom",
+                fontsize=5.0, color="#555555", zorder=9)
+        # N+ N-
+        cd_txt = f"N+={st['n_plus']} N−={st['n_minus']}"
+        ax.text(mid_x, y_b + y_range * 0.098,
+                cd_txt,
+                ha="center", va="bottom",
+                fontsize=4.5, color="#444444", zorder=9)
+
+    # ── Inset combined stats table (top-right, outside axes) ──
+    # Columns: Model | Median | IQR | N+ | N− | p | g [CI]
+    lines = []
+    hdr   = f"{'Model':<11} {'Med':>6}  {'IQR':>6}  {'N+':>4}  {'N−':>4}  {'p':>8}  g [95%CI]"
+    sep   = "─" * len(hdr)
+    lines.append(hdr)
+    lines.append(sep)
+
+    for model in model_names:
+        ser = cls_data.get(model)
+        if ser is None:
+            continue
+        arr = ser.dropna().values.astype(float)
+        arr = arr[np.isfinite(arr)]
+        if len(arr) < 2:
+            continue
+        med = np.median(arr)
+        iqr = np.subtract(*np.percentile(arr, [75, 25]))
+        prefix = "★" if model == REFERENCE_MODEL else " "
+        if model == REFERENCE_MODEL:
+            lines.append(f"{prefix+model:<11} {med:>6.3f}  {iqr:>6.3f}  {'—':>4}  {'—':>4}  {'—':>8}  —")
         else:
-            sub = df[["Filename", col]].copy()
+            st = stats_out.get(model, {})
+            n_plus  = st.get("n_plus", "—")
+            n_minus = st.get("n_minus", "—")
+            p_v     = st.get("p_val", np.nan)
+            g_v     = st.get("g", np.nan)
+            g_lo_v  = st.get("g_lo", np.nan)
+            g_hi_v  = st.get("g_hi", np.nan)
+            p_str   = f"{p_v:.4f}" if not np.isnan(p_v) else "n/a"
+            g_str   = (f"{g_v:+.2f}[{g_lo_v:+.2f},{g_hi_v:+.2f}]"
+                       if not np.isnan(g_v) else "n/a")
+            lines.append(
+                f"{prefix+model:<11} {med:>6.3f}  {iqr:>6.3f}  "
+                f"{str(n_plus):>4}  {str(n_minus):>4}  {p_str:>8}  {g_str}"
+            )
 
-        sub = sub.rename(columns={col: METRIC})
-        sub[METRIC] = pd.to_numeric(sub[METRIC], errors="coerce")
-        sub = sub.dropna(subset=[METRIC])
-        sub = sub[np.isfinite(sub[METRIC])]   # drop inf boundary penalties
+    table_txt = "\n".join(lines)
+    ax.text(1.02, 1.0, table_txt,
+            transform=ax.transAxes,
+            va="top", ha="left",
+            fontsize=4.8, fontfamily="monospace",
+            color="#111111",
+            bbox=dict(boxstyle="round,pad=0.35", facecolor="white",
+                      edgecolor="#cccccc", lw=0.5, alpha=0.92),
+            zorder=10, clip_on=False)
 
-        sub["Class_Name"] = cls.upper().strip()
-        sub["Model"]      = name
-        rows.append(sub[["Filename", "Class_Name", METRIC, "Model"]])
+    # ── Axis formatting ──
+    ax.set_xticks(list(x_positions.values()))
+    ax.set_xticklabels(
+        [f"★{m}" if m == REFERENCE_MODEL else m for m in model_names],
+        fontsize=8,
+        rotation=20,
+        ha="right",
+    )
+    total_y_top = y_bracket_base + len(baselines) * bracket_step + y_range * 0.15
+    ax.set_xlim(-0.55, len(model_names) - 0.45)
+    ax.set_ylim(y_min - y_range * 0.06, total_y_top)
+    direction = "↓ lower = better" if lower_is_better else "↑ higher = better"
+    ax.set_title(f"{metric}\n{direction}", fontsize=10, fontweight="bold", pad=5)
+    ax.set_ylabel(metric, fontsize=9)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.spines["left"].set_linewidth(0.5)
+    ax.spines["bottom"].set_linewidth(0.5)
+    ax.tick_params(axis="y", labelsize=7.5)
+    ax.tick_params(axis="x", length=0)
+    ax.grid(axis="y", linewidth=0.3, color="#eeeeee", zorder=0)
 
-    if rows:
-        all_data.append(pd.concat(rows, ignore_index=True))
+    return stats_out
 
-df_main = pd.concat(all_data, ignore_index=True)
 
 # =============================================================================
-# 4. AGGREGATE: Model × Class pivot
-# =============================================================================
-# DO NOT fillna(0) — NaN means missing data, not zero performance.
-# fillna(0) maps missing spokes to the radar centre, making models with
-# partial data appear to have the worst possible performance.
+# 6. MAIN LOOP — one figure per class
 # =============================================================================
 
-pivot = (
-    df_main
-    .groupby(["Model", "Class_Name"])[METRIC]
-    .agg(AGG_FN)
-    .unstack("Class_Name")
-    .dropna(axis=1, how="all")   # drop classes absent from ALL models
-    # ── NaN cells preserved intentionally ──
-)
+rng = np.random.default_rng(42)
+summary_records = []
 
-# Preserve original model order; keep only classes present in pivot
-model_names = [m for m, _ in excel_files if m in pivot.index]
-classes     = [c for c in class_list if c in pivot.columns]
-N           = len(classes)
+for cls in classes:
+    # ── Figure: 1 row, 4 columns (one per metric) ──
+    # Extra right margin for the inset stats table
+    FIG_W = len(ALL_METRICS) * 5.8 + 1.0
+    FIG_H = 6.0
 
-# ── Diagnostic: flag missing model–class combinations ──
-print("\n=== Data coverage (NaN = no data for that model–class) ===")
-print(pivot.loc[model_names, classes].to_string())
-print()
-
-# =============================================================================
-# 5. NORMALISATION FOR RADAR DISPLAY
-# =============================================================================
-# Normalise per class (spoke) independently so the full ring width is used.
-# NaN cells remain NaN — they will be excluded from plotting rather than
-# being mapped to 0 (centre), which would falsely imply worst performance.
-#
-# For LOWER_IS_BETTER (HD, HD95, ASD):
-#   norm = 1 − (value − col_min) / col_rng   →  lowest mm  = outer ring
-# For HIGHER_IS_BETTER (NSD):
-#   norm = (value − col_min) / col_rng        →  highest    = outer ring
-# =============================================================================
-
-raw     = pivot.loc[model_names, classes]    # keep NaN intact
-col_min = raw.min(axis=0)                    # ignores NaN
-col_max = raw.max(axis=0)
-col_rng = (col_max - col_min).replace(0, 1)  # avoid divide-by-zero
-
-if LOWER_IS_BETTER:
-    norm = 1.0 - (raw - col_min) / col_rng
-else:
-    norm = (raw - col_min) / col_rng
-
-norm = norm.clip(0.0, 1.0)   # guard floating-point edge cases
-
-print("=== Normalised values (NaN = excluded from radar) ===")
-print(norm.to_string())
-print()
-
-# =============================================================================
-# 6. RADAR GEOMETRY HELPERS
-# =============================================================================
-
-def radar_angles(n):
-    """N evenly-spaced angles, starting at top (−π/2), clockwise."""
-    return np.linspace(0, 2 * np.pi, n, endpoint=False) - np.pi / 2
-
-
-def close_polygon(values, angles):
-    """Append first element to close the radar polygon."""
-    return (
-        np.concatenate([values, [values[0]]]),
-        np.concatenate([angles, [angles[0]]]),
+    fig, axes = plt.subplots(
+        1, len(ALL_METRICS),
+        figsize=(FIG_W, FIG_H),
+        squeeze=False,
     )
 
+    for ci, metric in enumerate(ALL_METRICS):
+        ax          = axes[0][ci]
+        lower_b     = metric in LOWER_IS_BETTER
 
-angles = radar_angles(N)
+        # Build per-model Series indexed by Filename for this class
+        cls_data = {}
+        for model in model_names:
+            sub = df_all[
+                (df_all["Model"] == model) &
+                (df_all["Class_Name"] == cls)
+            ][["Filename", metric]].dropna()
+            if not sub.empty:
+                cls_data[model] = sub.set_index("Filename")[metric]
 
-# =============================================================================
-# 7. FIGURE LAYOUT
-# =============================================================================
-# Two-column Nature width: 7.09 in (≈ 18 cm).
-# Radar occupies left 62%; legend sits in right 38%.
-# =============================================================================
+        stats_out = draw_metric_panel(ax, cls_data, metric, lower_b, rng)
 
-FIG_W, FIG_H = 7.09, 6.30
-fig = plt.figure(figsize=(FIG_W, FIG_H))
+        # Collect summary
+        for baseline, st in stats_out.items():
+            ref_ser = cls_data.get(REFERENCE_MODEL)
+            bsl_ser = cls_data.get(baseline)
+            if ref_ser is not None and bsl_ser is not None:
+                merged = pd.concat([ref_ser.rename("ref"),
+                                     bsl_ser.rename("bsl")], axis=1).dropna()
+                merged = merged[np.isfinite(merged["ref"]) &
+                                np.isfinite(merged["bsl"])]
+                ref_med = np.median(ref_ser.dropna().values)
+                bsl_med = np.median(bsl_ser.dropna().values)
+            else:
+                ref_med = bsl_med = np.nan
 
-ax = fig.add_axes(
-    [0.06, 0.10, 0.60, 0.80],
-    projection="polar"
-)
+            summary_records.append({
+                "Class":    cls,
+                "Metric":   metric,
+                "Baseline": baseline,
+                "N_pairs":  st["n_pairs"],
+                "Ref_median":  round(ref_med, 4) if not np.isnan(ref_med) else np.nan,
+                "Bsl_median":  round(bsl_med, 4) if not np.isnan(bsl_med) else np.nan,
+                "N_plus":   st["n_plus"],
+                "N_minus":  st["n_minus"],
+                "Ties":     st["ties"],
+                "Win_pct_ref": round(100 * st["n_plus"] / max(st["n_pairs"], 1), 1),
+                "Paired_Wilcoxon_p": round(st["p_val"], 5)
+                                     if not np.isnan(st["p_val"]) else np.nan,
+                "Stars":    st["stars"],
+                "Hedges_g": round(st["g"],    3) if not np.isnan(st["g"])    else np.nan,
+                "g_CI_lo":  round(st["g_lo"], 3) if not np.isnan(st["g_lo"]) else np.nan,
+                "g_CI_hi":  round(st["g_hi"], 3) if not np.isnan(st["g_hi"]) else np.nan,
+            })
 
-# =============================================================================
-# 8. POLAR AXES STYLING
-# =============================================================================
+    # ── Legend ──
+    legend_handles = [
+        mlines.Line2D([0], [0], color=MODEL_COLORS[REFERENCE_MODEL],
+                      lw=2.2, label=f"★ {REFERENCE_MODEL} (reference)"),
+    ]
+    for bsl in baselines:
+        legend_handles.append(
+            mlines.Line2D([0], [0], color=MODEL_COLORS[bsl], lw=2.2, label=bsl)
+        )
+    legend_handles += [
+        mlines.Line2D([0], [0], color="#333333", lw=0.9, alpha=0.6,
+                      linestyle="--",
+                      label="Connecting lines: BAT-RM → baseline (coloured by baseline)"),
+    ]
 
-ax.set_theta_zero_location("N")    # first spoke at top
-ax.set_theta_direction(-1)         # clockwise
-ax.set_ylim(0, 1.0)
-
-# ------------------------------------------------------------------
-# 8a. Radial grid rings — labelled with approximate original metric
-#     values reconstructed from the global min/max range.
-#     A subtitle note explains the per-class normalisation.
-# ------------------------------------------------------------------
-grid_levels = np.linspace(0, 1, N_GRID_RINGS + 1)[1:]
-
-global_min = raw.values[np.isfinite(raw.values)].min()
-global_max = raw.values[np.isfinite(raw.values)].max()
-
-if LOWER_IS_BETTER:
-    ring_raw = [global_max - g * (global_max - global_min) for g in grid_levels]
-else:
-    ring_raw = [global_min + g * (global_max - global_min) for g in grid_levels]
-
-ring_labels = [f"{v:.1f}" for v in ring_raw]
-
-ax.set_rgrids(
-    grid_levels,
-    labels=ring_labels,
-    angle=225,
-    fontsize=7,
-    color="#888888",
-)
-ax.set_rlabel_position(225)
-
-# ------------------------------------------------------------------
-# 8b. Spoke (class) labels
-# ------------------------------------------------------------------
-ax.set_thetagrids(
-    np.degrees(angles + np.pi / 2),   # undo the −π/2 rotation for thetagrids
-    labels=classes,
-    fontsize=8.5,
-)
-
-for label, angle_rad in zip(ax.get_xticklabels(), angles):
-    label.set_color("#333333")
-    label.set_fontsize(8.5)
-    deg = np.degrees(angle_rad)
-    if   deg < -135 or deg > 135: label.set_horizontalalignment("center")
-    elif deg < 0:                  label.set_horizontalalignment("right")
-    else:                          label.set_horizontalalignment("left")
-
-# ------------------------------------------------------------------
-# 8c. Grid aesthetics
-# ------------------------------------------------------------------
-ax.yaxis.grid(True, linestyle="--", linewidth=0.4, color="#bbbbbb", alpha=0.7)
-ax.xaxis.grid(True, linestyle="-",  linewidth=0.4, color="#cccccc", alpha=0.5)
-ax.spines["polar"].set_visible(False)
-
-# Alternating ring background (Nature style)
-for i in range(len(grid_levels) - 1, -1, -1):
-    facecolor = "#f7f7f7" if i % 2 == 0 else "white"
-    ax.fill_between(
-        np.linspace(0, 2 * np.pi, 300),
-        grid_levels[i - 1] if i > 0 else 0,
-        grid_levels[i],
-        color=facecolor,
-        zorder=0,
+    fig.legend(
+        handles        = legend_handles,
+        loc            = "lower center",
+        ncol           = len(legend_handles),
+        frameon        = False,
+        fontsize       = 8,
+        bbox_to_anchor = (0.5, -0.04),
     )
 
+    fig.suptitle(
+        f"Paired violin + box plots — {cls}\n"
+        f"All 5 models per metric  |  "
+        f"Connecting lines: ★{REFERENCE_MODEL} → each baseline (coloured by baseline)  |  "
+        f"Brackets: paired Wilcoxon p-value  |  "
+        f"g = paired Hedges' g [95% bootstrap CI]",
+        fontsize=10, fontweight="bold", y=1.01,
+    )
+
+    plt.tight_layout(w_pad=5.5, rect=[0, 0.05, 1, 0.99])
+
+    safe_cls = cls.replace(" ", "_")
+    png_path = os.path.join(SAVE_DIR, f"PairedViolin_H_{safe_cls}.png")
+    pdf_path = os.path.join(SAVE_DIR, f"PairedViolin_H_{safe_cls}.pdf")
+    plt.savefig(png_path, dpi=600, bbox_inches="tight", facecolor="white")
+    plt.savefig(pdf_path, format="pdf", bbox_inches="tight", facecolor="white")
+    plt.show()
+    plt.close()
+    print(f"Saved → {png_path}")
+
 # =============================================================================
-# 9. PLOT EACH MODEL
-# =============================================================================
-# Models with partial data are plotted only on spokes where data exists.
-# Missing spokes: dashed outline + small × at centre to signal absence.
-# Models with zero valid spokes are skipped with a console warning.
+# 7. SUMMARY HEATMAP — same as before
 # =============================================================================
 
-for model in model_names:
-    values = norm.loc[model, classes].values.astype(float)   # may contain NaN
-    color  = MODEL_COLORS[model]
-    marker = MODEL_MARKERS[model]
+df_sum = pd.DataFrame(summary_records)
 
-    valid_mask = ~np.isnan(values)
+df_sum["Med_diff_signed"] = df_sum.apply(
+    lambda r: (r["Ref_median"] - r["Bsl_median"])
+              * (-1 if r["Metric"] in LOWER_IS_BETTER else 1),
+    axis=1,
+)
 
-    # ── Skip model entirely if no data survives cleaning ──
-    if valid_mask.sum() == 0:
-        print(f"WARNING: {model} has no valid data — skipped from radar.")
-        continue
+row_labels = [f"{cls}\nvs {bsl}"
+              for cls in classes for bsl in baselines]
+n_rows_h   = len(classes) * len(baselines)
 
-    valid_angles = angles[valid_mask]
-    valid_values = values[valid_mask]
+diff_mat = np.full((n_rows_h, len(ALL_METRICS)), np.nan)
+star_mat = [["" for _ in ALL_METRICS] for _ in range(n_rows_h)]
+g_mat    = np.full((n_rows_h, len(ALL_METRICS)), np.nan)
 
-    if valid_mask.all():
-        # ── All spokes present: full closed polygon, solid outline ──
-        vals_c, ang_c = close_polygon(valid_values, valid_angles)
-        ax.fill(ang_c, vals_c, color=color, alpha=FILL_ALPHA, zorder=2)
-        ax.plot(ang_c, vals_c, color=color, linewidth=1.6,
-                linestyle="-", zorder=3)
-    else:
-        # ── Partial data: connect available spokes, dashed outline ──
-        vals_c = np.concatenate([valid_values, [valid_values[0]]])
-        ang_c  = np.concatenate([valid_angles, [valid_angles[0]]])
-        ax.fill(ang_c, vals_c, color=color, alpha=FILL_ALPHA, zorder=2)
-        ax.plot(ang_c, vals_c, color=color, linewidth=1.6,
-                linestyle="--", zorder=3)
+for ri, (cls, bsl) in enumerate(
+    [(c, b) for c in classes for b in baselines]
+):
+    sub = df_sum[(df_sum["Class"] == cls) & (df_sum["Baseline"] == bsl)]
+    for ci, metric in enumerate(ALL_METRICS):
+        row = sub[sub["Metric"] == metric]
+        if row.empty:
+            continue
+        diff_mat[ri, ci] = row.iloc[0]["Med_diff_signed"]
+        star_mat[ri][ci] = row.iloc[0]["Stars"]
+        g_mat[ri, ci]    = row.iloc[0]["Hedges_g"]
 
-        # Small × marker at the centre of missing spokes
-        missing_angles = angles[~valid_mask]
-        ax.scatter(
-            missing_angles,
-            np.full(missing_angles.shape, 0.05),
-            color=color, marker="x", s=20, zorder=4,
-            linewidths=1.0, alpha=0.6,
+v_abs = np.nanmax(np.abs(diff_mat)) if np.any(np.isfinite(diff_mat)) else 1.0
+
+from matplotlib.colors import TwoSlopeNorm
+FIG5_W = len(ALL_METRICS) * 2.2 + 3.5
+FIG5_H = max(6, n_rows_h * 0.55 + 2.0)
+fig5, ax5 = plt.subplots(figsize=(FIG5_W, FIG5_H))
+
+norm5 = TwoSlopeNorm(vmin=-v_abs, vcenter=0, vmax=v_abs)
+im5   = ax5.imshow(diff_mat, cmap=plt.cm.RdBu, norm=norm5, aspect="auto")
+
+for ri in range(n_rows_h):
+    for ci, metric in enumerate(ALL_METRICS):
+        v  = diff_mat[ri, ci]
+        st = star_mat[ri][ci]
+        g  = g_mat[ri, ci]
+        if np.isnan(v):
+            ax5.text(ci, ri, "—", ha="center", va="center",
+                     fontsize=7, color="#aaaaaa")
+            continue
+        txt_col = "white" if abs(v) > v_abs * 0.6 else "#111111"
+        ax5.text(ci, ri - 0.15, f"{v:+.3f}",
+                 ha="center", va="center",
+                 fontsize=7, color=txt_col, fontweight="bold")
+        label_parts = []
+        if st and st != "ns":
+            label_parts.append(st)
+        if not np.isnan(g):
+            label_parts.append(f"g={g:+.2f}")
+        if label_parts:
+            ax5.text(ci, ri + 0.25, "  ".join(label_parts),
+                     ha="center", va="center",
+                     fontsize=5.2, color=txt_col)
+
+for gi in range(len(classes)):
+    y_sep = gi * len(baselines) - 0.5
+    if y_sep > -0.5:
+        ax5.axhline(y_sep, color="#333333", lw=1.0, zorder=5)
+
+for k in range(len(ALL_METRICS) + 1):
+    ax5.axvline(k - 0.5, color="#cccccc", lw=0.4)
+for k in range(n_rows_h + 1):
+    ax5.axhline(k - 0.5, color="#cccccc", lw=0.4)
+
+ax5.set_xticks(range(len(ALL_METRICS)))
+ax5.set_xticklabels(ALL_METRICS, fontsize=9, fontweight="bold")
+ax5.set_yticks(range(n_rows_h))
+ax5.set_yticklabels(row_labels, fontsize=7)
+ax5.set_title(
+    f"Summary: signed median difference  ({REFERENCE_MODEL} − baseline)\n"
+    "Red = reference model better  |  Blue = baseline better\n"
+    "(distance metrics sign-flipped so red = better always)",
+    fontsize=9, fontweight="bold", pad=6,
+)
+ax5.tick_params(length=0)
+cb5 = plt.colorbar(im5, ax=ax5, fraction=0.025, pad=0.03)
+cb5.ax.tick_params(labelsize=7.5)
+cb5.set_label(f"{REFERENCE_MODEL} better → / ← baseline better", fontsize=7.5)
+
+plt.tight_layout()
+sum_png = os.path.join(SAVE_DIR, "PairedViolin_H_SummaryHeatmap.png")
+sum_pdf = os.path.join(SAVE_DIR, "PairedViolin_H_SummaryHeatmap.pdf")
+plt.savefig(sum_png, dpi=600, bbox_inches="tight", facecolor="white")
+plt.savefig(sum_pdf, format="pdf",  bbox_inches="tight", facecolor="white")
+plt.show()
+plt.close()
+print(f"Saved summary heatmap → {sum_png}")
+
+# =============================================================================
+# 8. EXCEL STATISTICS TABLE
+# =============================================================================
+
+stats_path = os.path.join(SAVE_DIR, "PairedViolin_H_Statistics.xlsx")
+
+with pd.ExcelWriter(stats_path, engine="openpyxl") as writer:
+    df_sum.to_excel(writer, index=False, sheet_name="PairedStats")
+
+    ws = writer.sheets["PairedStats"]
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
+    thin     = Border(**{s: Side(style="thin", color="CCCCCC")
+                         for s in ("left","right","top","bottom")})
+    hdr_fill = PatternFill("solid", fgColor="1F4E79")
+    hdr_font = Font(bold=True, color="FFFFFF", size=8, name="Helvetica")
+    sig_fill  = PatternFill("solid", fgColor="D5E8D4")
+    ns_fill   = PatternFill("solid", fgColor="F8F8F8")
+    alt_fill  = PatternFill("solid", fgColor="EBF3FB")
+    warn_fill = PatternFill("solid", fgColor="FFE6CC")
+
+    col_names = list(df_sum.columns)
+
+    for cell in ws[1]:
+        cell.fill = hdr_fill; cell.font = hdr_font
+        cell.alignment = Alignment(horizontal="center")
+        cell.border = thin
+
+    for row_idx, (_, row) in enumerate(df_sum.iterrows(), start=2):
+        stars   = row.get("Stars", "")
+        win_pct = row.get("Win_pct_ref", 50)
+        if stars not in ("ns", "", None) and not pd.isna(stars):
+            fill = sig_fill if win_pct >= 50 else warn_fill
+        else:
+            fill = alt_fill if row_idx % 2 == 0 else ns_fill
+        for cell in ws[row_idx]:
+            cell.border    = thin
+            cell.alignment = Alignment(horizontal="center")
+            cell.font      = Font(size=8, name="Helvetica")
+            cell.fill      = fill
+
+    for col in ws.columns:
+        ws.column_dimensions[col[0].column_letter].width = 17
+
+print(f"Statistics saved → {stats_path}")
+
+# =============================================================================
+# 9. CONSOLE REPORT
+# =============================================================================
+
+print("\n" + "=" * 78)
+print(f"PAIRED STATISTICS REPORT  ({REFERENCE_MODEL} vs baselines)")
+print("=" * 78)
+
+for metric in ALL_METRICS:
+    print(f"\n{metric}:")
+    sub = df_sum[df_sum["Metric"] == metric]
+    print(f"  {'Class':<22} {'Baseline':<12} {'N':>5} "
+          f"{'N+':>5} {'N−':>5} {'Win%':>7} {'p':>10} {'g':>8}")
+    print("  " + "-" * 76)
+    for _, row in sub.sort_values(["Class", "Baseline"]).iterrows():
+        print(
+            f"  {row['Class']:<22} {row['Baseline']:<12} "
+            f"{int(row['N_pairs']):>5} "
+            f"{int(row['N_plus']):>5} "
+            f"{int(row['N_minus']):>5} "
+            f"{row['Win_pct_ref']:>6.1f}% "
+            f"{str(row.get('Paired_Wilcoxon_p','—')):>10} "
+            f"{str(row.get('Hedges_g','—')):>8}"
+            f"  {row['Stars']}"
         )
 
-    # ── Vertex markers on valid spokes ──
-    ax.scatter(
-        valid_angles, valid_values,
-        color=color, marker=marker, s=28, zorder=4,
-        linewidths=0.6, edgecolors="white",
-    )
+print(f"\nAll outputs saved in: {SAVE_DIR}")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 # =============================================================================
-# 10. PERFORMANCE DIRECTION ANNOTATION
+# PAIRED VIOLIN + BOX PLOTS WITH EXPLICIT PATIENT PAIRING
+# Nature Medicine Style — All Metrics, All Classes
+# =============================================================================
+#
+# Upgrade over standard Wilcoxon:
+#   • Uses PAIRED Wilcoxon signed-rank test (same patient, different model)
+#   • Shows pairing explicitly via connecting lines between matched dots
+#   • Reports concordant / discordant pair counts (N+, N−, ties)
+#   • Effect size: paired Hedges' g with 95% bootstrap CI
+#
+# LAYOUT — one figure per class (7 figures total):
+#   Columns : metrics (Dice, IoU, HD95, ASD)
+#   Each panel:
+#     ① Violin (full distribution shape)
+#     ② Box (IQR + median)
+#     ③ Strip dots — one per patient, jittered
+#     ④ Grey connecting lines between matched patient dots
+#        (reference model dot → baseline model dot)
+#        Lines coloured RED if reference model wins that patient,
+#        BLUE if baseline wins — immediately shows direction of individual pairs
+#     ⑤ Significance bracket with paired Wilcoxon p-value + stars
+#     ⑥ Concordant / discordant count annotation
+#        "N+=18 N−=7 ties=0" below the bracket
+#
+# INSET TABLE per panel (top-right):
+#   Model | Median | IQR | N+ | N− | g | CI
+#
+# Statistical method:
+#   Paired Wilcoxon signed-rank test (scipy.stats.wilcoxon, zero_method="pratt")
+#   Paired Hedges' g = mean(diff) / SD(diff) × correction_factor
+#   95% CI via BCa bootstrap (n=1000 resamples)
+#
+# NOTE on connecting lines:
+#   Only patients with data for BOTH models in a pair are connected.
+#   If a class has >MAX_LINES patients, a random subsample is drawn to
+#   keep the figure readable (default MAX_LINES=60).
+#
+# Dependencies: pandas, numpy, matplotlib, scipy, openpyxl
 # =============================================================================
 
-direction_text = (
-    "outer ring = lower (better)"
-    if LOWER_IS_BETTER else
-    "outer ring = higher (better)"
-)
-fig.text(
-    0.06, 0.06,
-    f"↑ {direction_text}",
-    fontsize=7, color="#666666", style="italic", ha="left", va="bottom",
-)
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+import matplotlib.lines as mlines
+import matplotlib.gridspec as gridspec
+from scipy.stats import wilcoxon, gaussian_kde
+from scipy import stats
+import os
+import warnings
+
+warnings.filterwarnings("ignore")
 
 # =============================================================================
-# 11. LEGEND  (outside radar, right side — no frame, Nature style)
+# 1. CONFIGURATION
 # =============================================================================
 
-legend_handles = [
-    Line2D(
-        [0], [0],
-        color=MODEL_COLORS[m],
-        linewidth=1.6,
-        marker=MODEL_MARKERS[m],
-        markersize=5,
-        markerfacecolor=MODEL_COLORS[m],
-        markeredgecolor="white",
-        markeredgewidth=0.5,
-        label=m,
-    )
-    for m in model_names
+REFERENCE_MODEL = "BAT-RM"
+
+excel_files_seg = [
+    ("BAT-RM",    r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/200 Epochs/segmentation_metrics_enhanced_200_epoch_enhanced.xlsx'),
+    ("nnUNet",    r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/134 epochs/segmentation_metrics_detailed_epoch_134_generated.xlsx'),
+    ("SegMamba",  r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/UNET3+_segmentation_metrics_detailed_epoch_200_generated.xlsx'),
+    ("TransUNet", r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/vanilla_unet_segmentation_metrics_detailed_epoch_200_generated.xlsx'),
+    ("UNETR",     r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/nnUNet_256/Segmentation_Cervix_small_Axial_axis_pytorch_detailed_metrics_Generated.xlsx'),
 ]
 
-# Add a dashed line entry to explain partial-data models (if any)
-has_partial = any(
-    (~np.isnan(norm.loc[m, classes].values)).sum() not in (0, N)
-    for m in model_names
+excel_files_bnd = [
+    ("BAT-RM",    r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/200 Epochs/boundary_metrics_epoch_200_enhanced_v5.xlsx'),
+    ("nnUNet",    r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/134 epochs/boundary_metrics_epoch_134_generated.xlsx'),
+    ("SegMamba",  r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/UNET3+_boundary_metrics_epoch_200_generated.xlsx'),
+    ("TransUNet", r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/vanilla_unet_boundary_metrics_epoch_200_generated.xlsx'),
+    ("UNETR",     r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/nnUNet_256/boundary_metrics_nnUNet_100_epochs_generated.xlsx'),
+]
+
+SEG_METRICS     = ["Dice", "IoU"]
+BND_METRICS     = ["HD95", "ASD"]
+ALL_METRICS     = SEG_METRICS + BND_METRICS
+LOWER_IS_BETTER = {"HD95", "ASD", "HD", "RVD", "RAVD"}
+
+class_list = [
+    "BODY", "URINARY BLADDER", "SMALL BOWEL",
+    "RECTUM", "FEMORAL HEAD", "GTV", "CTV",
+]
+
+# Max connecting lines per panel (subsample if more patients)
+MAX_LINES  = 60
+# Bootstrap resamples for Hedges' g CI
+N_BOOT     = 1000
+
+MODEL_COLORS = {
+    "BAT-RM":    "#0077BB",
+    "nnUNet":    "#009988",
+    "SegMamba":  "#EE7733",
+    "TransUNet": "#CC3311",
+    "UNETR":     "#AA4499",
+}
+
+# Line colours for connecting pairs
+WIN_COLOR  = "#CC3311"   # reference model wins this patient
+LOSE_COLOR = "#4477AA"   # baseline wins this patient
+TIE_COLOR  = "#AAAAAA"
+
+SAVE_DIR = r'I:/Radiotherapy/Cervix/Paper/Result/Quantitative/Final/Mixed/PairedViolin'
+os.makedirs(SAVE_DIR, exist_ok=True)
+
+# =============================================================================
+# 2. MATPLOTLIB GLOBAL STYLE
+# =============================================================================
+
+plt.rcParams.update({
+    "font.family":      "sans-serif",
+    "font.sans-serif":  ["Helvetica", "Arial", "DejaVu Sans"],
+    "font.size":        9,
+    "axes.titlesize":   9,
+    "axes.labelsize":   8.5,
+    "xtick.labelsize":  8,
+    "ytick.labelsize":  7.5,
+    "axes.linewidth":   0.6,
+    "grid.linewidth":   0.35,
+    "axes.facecolor":   "white",
+    "figure.facecolor": "white",
+    "pdf.fonttype":     42,
+    "ps.fonttype":      42,
+    "figure.dpi":       150,
+    "savefig.dpi":      600,
+})
+
+# =============================================================================
+# 3. DATA LOADING
+# =============================================================================
+
+def load_segmentation(excel_files, metrics, class_list):
+    all_data = []
+    for name, path in excel_files:
+        df = pd.concat(pd.read_excel(path, sheet_name=None), ignore_index=True)
+        for m in metrics:
+            if m in df.columns:
+                df[m] = pd.to_numeric(df[m], errors="coerce")
+        df["Class_Name"] = df["Class_Name"].astype(str).str.upper().str.strip()
+        df = df[~df["Class_Name"].isin(["BACKGROUND", "NAN", "NONE", "", "0"])]
+        df = df[df["Class_Name"].isin([c.upper() for c in class_list])]
+        df["Model"] = name
+        cols = ["Filename", "Class_Name", "Model"] + \
+               [m for m in metrics if m in df.columns]
+        all_data.append(df[cols])
+    return pd.concat(all_data, ignore_index=True)
+
+
+def load_boundary(excel_files, metrics, class_list):
+    all_data = []
+    for name, path in excel_files:
+        df = pd.read_excel(path, sheet_name="Detailed_Per_Instance")
+        file_rows = []
+        for cls in class_list:
+            present = f"{cls}_Present_In_GT"
+            gt_vol  = f"{cls}_GT_Volume"
+            if present in df.columns:
+                sub = df[df[present] == True].copy()
+            elif gt_vol in df.columns:
+                sub = df[df[gt_vol] > 0].copy()
+            else:
+                sub = df.copy()
+            if sub.empty:
+                continue
+            cls_cols  = {"Filename": sub["Filename"].values}
+            any_found = False
+            for m in metrics:
+                col = f"{cls}_{m}"
+                if col not in df.columns:
+                    cls_cols[m] = np.nan
+                    continue
+                vals = pd.to_numeric(sub[col], errors="coerce").values
+                vals = np.where(np.isfinite(vals), vals, np.nan)
+                cls_cols[m] = vals
+                any_found   = True
+            if not any_found:
+                continue
+            tmp = pd.DataFrame(cls_cols)
+            tmp["Class_Name"] = cls.upper().strip()
+            tmp["Model"]      = name
+            tmp = tmp.dropna(subset=metrics, how="all")
+            file_rows.append(tmp)
+        if file_rows:
+            all_data.append(pd.concat(file_rows, ignore_index=True))
+    if not all_data:
+        raise ValueError("No boundary data loaded.")
+    return pd.concat(all_data, ignore_index=True)
+
+
+print("Loading data …")
+df_seg = load_segmentation(excel_files_seg, SEG_METRICS, class_list)
+df_bnd = load_boundary(excel_files_bnd, BND_METRICS, class_list)
+
+df_all = pd.merge(
+    df_seg, df_bnd,
+    on=["Filename", "Class_Name", "Model"],
+    how="outer",
 )
-if has_partial:
-    legend_handles.append(
-        Line2D([0], [0], color="#888888", linewidth=1.2,
-               linestyle="--", label="Partial data")
+
+model_names = [m for m, _ in excel_files_seg]
+baselines   = [m for m in model_names if m != REFERENCE_MODEL]
+classes     = sorted(df_all["Class_Name"].dropna().unique())
+
+print(f"Models   : {model_names}")
+print(f"Classes  : {classes}")
+print(f"Metrics  : {ALL_METRICS}")
+print(f"Patients : {df_all['Filename'].nunique()}\n")
+
+# =============================================================================
+# 4. STATISTICAL HELPERS
+# =============================================================================
+
+def paired_hedges_g(diff):
+    """Paired Hedges' g from an array of differences (ref − baseline)."""
+    diff = np.array(diff)
+    n    = len(diff)
+    if n < 2:
+        return np.nan
+    d = diff.mean() / (diff.std(ddof=1) + 1e-12)
+    j = 1 - 3 / (4 * (n - 1) - 1)   # Hedges' correction
+    return d * j
+
+
+def bootstrap_g_ci(diff, n_boot=1000, seed=42):
+    """BCa bootstrap 95% CI for paired Hedges' g."""
+    diff = np.array(diff)
+    n    = len(diff)
+    if n < 3:
+        return np.nan, np.nan
+    rng  = np.random.default_rng(seed)
+    boot = np.array([
+        paired_hedges_g(diff[rng.integers(0, n, n)])
+        for _ in range(n_boot)
+    ])
+    return np.nanpercentile(boot, 2.5), np.nanpercentile(boot, 97.5)
+
+
+def paired_wilcoxon(x_ref, x_bsl):
+    """
+    Paired Wilcoxon signed-rank test.
+    Returns (statistic, p_value).
+    """
+    diff = np.array(x_ref) - np.array(x_bsl)
+    if len(diff) < 3 or np.all(diff == 0):
+        return np.nan, np.nan
+    try:
+        stat, p = wilcoxon(x_ref, x_bsl, zero_method="pratt")
+        return stat, p
+    except Exception:
+        return np.nan, np.nan
+
+
+def concordant_discordant(x_ref, x_bsl, lower_is_better):
+    """
+    N+ : pairs where reference model is better
+    N− : pairs where baseline is better
+    T  : ties
+    """
+    diff = np.array(x_ref) - np.array(x_bsl)
+    tol  = 1e-9
+    if lower_is_better:
+        n_plus  = (diff < -tol).sum()   # ref smaller = ref wins
+        n_minus = (diff >  tol).sum()
+    else:
+        n_plus  = (diff >  tol).sum()   # ref larger = ref wins
+        n_minus = (diff < -tol).sum()
+    ties = (np.abs(diff) <= tol).sum()
+    return int(n_plus), int(n_minus), int(ties)
+
+
+def p_stars(p):
+    if np.isnan(p):  return ""
+    if p < 0.0001:   return "****"
+    if p < 0.001:    return "***"
+    if p < 0.01:     return "**"
+    if p < 0.05:     return "*"
+    return "ns"
+
+
+# =============================================================================
+# 5. SINGLE PANEL DRAWING FUNCTION
+# =============================================================================
+
+def draw_paired_panel(ax, ref_vals, bsl_vals, filenames,
+                      ref_name, bsl_name, metric, lower_is_better,
+                      rng, max_lines=MAX_LINES):
+    """
+    Draw one paired violin+box+strip+connecting-lines panel.
+
+    Parameters
+    ----------
+    ax              : matplotlib Axes
+    ref_vals, bsl_vals : 1D arrays, same length, same patient order
+    filenames       : array of patient IDs (same order)
+    ref_name        : str, reference model name
+    bsl_name        : str, baseline model name
+    metric          : str, metric name
+    lower_is_better : bool
+    rng             : numpy Generator
+    max_lines       : int, max connecting lines to draw
+    """
+    x_ref, x_bsl = 0, 1    # x positions for the two models
+    colors = [MODEL_COLORS.get(ref_name, "#0077BB"),
+              MODEL_COLORS.get(bsl_name, "#888888")]
+
+    ref_arr = np.array(ref_vals, float)
+    bsl_arr = np.array(bsl_vals, float)
+    n       = len(ref_arr)
+
+    # ── Violin ──
+    for xi, arr, color in [(x_ref, ref_arr, colors[0]),
+                           (x_bsl, bsl_arr, colors[1])]:
+        if len(arr) < 4:
+            continue
+        try:
+            kde  = gaussian_kde(arr, bw_method="scott")
+            y_ev = np.linspace(arr.min(), arr.max(), 300)
+            dens = kde(y_ev)
+            dens = dens / dens.max() * 0.36
+            ax.fill_betweenx(y_ev, xi - dens, xi + dens,
+                             color=color, alpha=0.18, zorder=1)
+            ax.plot(xi - dens, y_ev, color=color, lw=0.7, alpha=0.6, zorder=2)
+            ax.plot(xi + dens, y_ev, color=color, lw=0.7, alpha=0.6, zorder=2)
+        except Exception:
+            pass
+
+    # ── Box (IQR) ──
+    for xi, arr, color in [(x_ref, ref_arr, colors[0]),
+                           (x_bsl, bsl_arr, colors[1])]:
+        q25, q50, q75 = np.percentile(arr, [25, 50, 75])
+        # Median bar
+        ax.plot([xi - 0.20, xi + 0.20], [q50, q50],
+                color=color, lw=2.4, solid_capstyle="round", zorder=6)
+        # IQR box
+        ax.add_patch(plt.Rectangle(
+            (xi - 0.15, q25), 0.30, q75 - q25,
+            facecolor=color, alpha=0.22,
+            edgecolor=color, lw=0.9, zorder=4,
+        ))
+        # Whiskers to 5th/95th pct
+        p05, p95 = np.percentile(arr, [5, 95])
+        ax.plot([xi, xi], [p05, q25], color=color, lw=0.8, alpha=0.6, zorder=3)
+        ax.plot([xi, xi], [q75, p95], color=color, lw=0.8, alpha=0.6, zorder=3)
+        ax.plot([xi - 0.08, xi + 0.08], [p05, p05],
+                color=color, lw=0.8, alpha=0.6, zorder=3)
+        ax.plot([xi - 0.08, xi + 0.08], [p95, p95],
+                color=color, lw=0.8, alpha=0.6, zorder=3)
+
+    # ── Connecting lines between matched patient dots ──
+    # Subsample if too many patients
+    indices = np.arange(n)
+    if n > max_lines:
+        indices = rng.choice(n, max_lines, replace=False)
+        sampled_note = f"(showing {max_lines}/{n} pairs)"
+    else:
+        sampled_note = f"(n={n} pairs)"
+
+    tol = 1e-9
+    for idx in indices:
+        rv, bv = ref_arr[idx], bsl_arr[idx]
+        if lower_is_better:
+            ref_wins = rv < bv - tol
+            bsl_wins = bv < rv - tol
+        else:
+            ref_wins = rv > bv + tol
+            bsl_wins = bv > rv + tol
+
+        if ref_wins:
+            lc = WIN_COLOR
+        elif bsl_wins:
+            lc = LOSE_COLOR
+        else:
+            lc = TIE_COLOR
+
+        # Jitter x positions slightly so lines don't stack
+        jx_ref = x_ref + rng.uniform(-0.08, 0.08)
+        jx_bsl = x_bsl + rng.uniform(-0.08, 0.08)
+        ax.plot([jx_ref, jx_bsl], [rv, bv],
+                color=lc, lw=0.45, alpha=0.35, zorder=3)
+
+    # ── Strip dots ──
+    for xi, arr, color in [(x_ref, ref_arr, colors[0]),
+                           (x_bsl, bsl_arr, colors[1])]:
+        jitter = rng.uniform(-0.10, 0.10, size=len(arr))
+        ax.scatter(xi + jitter, arr,
+                   color=color, s=9, alpha=0.50,
+                   edgecolors="white", linewidths=0.2, zorder=5)
+
+    # ── Statistics ──
+    diff          = ref_arr - bsl_arr
+    _, p_val      = paired_wilcoxon(ref_arr, bsl_arr)
+    g             = paired_hedges_g(diff if not lower_is_better else -diff)
+    g_lo, g_hi    = bootstrap_g_ci(diff if not lower_is_better else -diff, N_BOOT)
+    n_plus, n_minus, ties = concordant_discordant(ref_arr, bsl_arr, lower_is_better)
+    stars         = p_stars(p_val)
+
+    # ── Significance bracket ──
+    y_data_max = max(ref_arr.max(), bsl_arr.max())
+    y_data_min = min(ref_arr.min(), bsl_arr.min())
+    y_range    = y_data_max - y_data_min if y_data_max > y_data_min else 1.0
+    y_bracket  = y_data_max + y_range * 0.08
+
+    ax.plot([x_ref, x_ref, x_bsl, x_bsl],
+            [y_bracket, y_bracket + y_range * 0.02,
+             y_bracket + y_range * 0.02, y_bracket],
+            color="#333333", lw=0.9, zorder=8)
+
+    sig_color = "#CC2222" if (stars not in ("ns", "")) else "#666666"
+    ax.text((x_ref + x_bsl) / 2, y_bracket + y_range * 0.04,
+            stars if stars else "ns",
+            ha="center", va="bottom",
+            fontsize=8, color=sig_color, fontweight="bold", zorder=9)
+
+    # p-value numeric below stars
+    p_txt = f"p={p_val:.4f}" if not np.isnan(p_val) else "p=n/a"
+    ax.text((x_ref + x_bsl) / 2, y_bracket + y_range * 0.09,
+            p_txt,
+            ha="center", va="bottom",
+            fontsize=5.5, color="#555555", zorder=9)
+
+    # Concordant / discordant annotation
+    cd_txt = (f"N+={n_plus}  N−={n_minus}"
+              + (f"  ties={ties}" if ties > 0 else ""))
+    ax.text((x_ref + x_bsl) / 2, y_bracket + y_range * 0.155,
+            cd_txt,
+            ha="center", va="bottom",
+            fontsize=5.5, color="#333333", zorder=9)
+
+    # ── Inset stats box ──
+    ref_med = np.median(ref_arr)
+    bsl_med = np.median(bsl_arr)
+    ref_iqr = np.subtract(*np.percentile(ref_arr, [75, 25]))
+    bsl_iqr = np.subtract(*np.percentile(bsl_arr, [75, 25]))
+    g_str   = (f"{g:+.2f} [{g_lo:+.2f},{g_hi:+.2f}]"
+               if not np.isnan(g) else "n/a")
+
+    stats_txt = (
+        f"{'Model':<9} {'Med':>5}  {'IQR':>5}\n"
+        f"{'─'*24}\n"
+        f"{'★'+ref_name:<9} {ref_med:>5.3f}  {ref_iqr:>5.3f}\n"
+        f"{bsl_name:<9} {bsl_med:>5.3f}  {bsl_iqr:>5.3f}\n"
+        f"{'─'*24}\n"
+        f"g = {g_str}\n"
+        f"{sampled_note}"
+    )
+    ax.text(1.04, 0.99, stats_txt,
+            transform=ax.transAxes,
+            va="top", ha="left",
+            fontsize=5.2, fontfamily="monospace",
+            color="#222222",
+            bbox=dict(boxstyle="round,pad=0.3", facecolor="white",
+                      edgecolor="#cccccc", lw=0.5, alpha=0.90),
+            zorder=10, clip_on=False)
+
+    # ── Axis formatting ──
+    ax.set_xticks([x_ref, x_bsl])
+    ax.set_xticklabels(
+        [f"{'★ ' if ref_name == REFERENCE_MODEL else ''}{ref_name}",
+         bsl_name],
+        fontsize=7.5,
+    )
+    ax.set_xlim(-0.55, 1.55)
+    ax.set_ylim(y_data_min - y_range * 0.08,
+                y_bracket + y_range * 0.28)
+    ax.set_ylabel(metric, fontsize=8)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.spines["left"].set_linewidth(0.5)
+    ax.spines["bottom"].set_linewidth(0.5)
+    ax.tick_params(axis="y", labelsize=7)
+    ax.tick_params(axis="x", length=0)
+    ax.grid(axis="y", linewidth=0.3, color="#eeeeee", zorder=0)
+
+    return {
+        "p_val": p_val, "stars": stars,
+        "g": g, "g_lo": g_lo, "g_hi": g_hi,
+        "n_pairs": n, "n_plus": n_plus, "n_minus": n_minus, "ties": ties,
+        "ref_median": ref_med, "bsl_median": bsl_med,
+        "ref_iqr": ref_iqr, "bsl_iqr": bsl_iqr,
+    }
+
+
+# =============================================================================
+# 6. MAIN LOOP — one figure per class
+# Each figure: rows = baselines, columns = metrics
+# =============================================================================
+
+rng = np.random.default_rng(42)
+summary_records = []
+
+ref_df = df_all[df_all["Model"] == REFERENCE_MODEL]
+
+for cls in classes:
+    n_baselines = len(baselines)
+    n_metrics   = len(ALL_METRICS)
+
+    # Each panel: ~2.8 in wide (+ 1.2 for inset box), ~3.2 in tall
+    PANEL_W = 2.8
+    PANEL_H = 3.6
+    FIG_W   = n_metrics * (PANEL_W + 1.5) + 0.6
+    FIG_H   = n_baselines * PANEL_H + 1.8
+
+    fig, axes = plt.subplots(
+        n_baselines, n_metrics,
+        figsize=(FIG_W, FIG_H),
+        squeeze=False,
     )
 
-legend = fig.legend(
-    handles        = legend_handles,
-    loc            = "center right",
-    bbox_to_anchor = (1.01, 0.50),
-    frameon        = False,
-    title          = "Model",
-    title_fontsize = 9,
-    fontsize       = 8.5,
-    handlelength   = 2.0,
-    handleheight   = 0.8,
-    borderpad      = 0.5,
-    labelspacing   = 0.6,
+    # Direction note per metric (top of column)
+    direction_note = {
+        m: ("↑ higher = better" if m not in LOWER_IS_BETTER else "↓ lower = better")
+        for m in ALL_METRICS
+    }
+
+    # Column headers
+    for ci, metric in enumerate(ALL_METRICS):
+        axes[0][ci].set_title(
+            f"{metric}\n{direction_note[metric]}",
+            fontsize=9, fontweight="bold", pad=6,
+        )
+
+    for ri, baseline in enumerate(baselines):
+        bsl_df  = df_all[df_all["Model"] == baseline]
+        bsl_color = MODEL_COLORS.get(baseline, "#888888")
+
+        # Row label (baseline model name, left side)
+        axes[ri][0].set_ylabel(
+            f"{baseline}\nvs {REFERENCE_MODEL}\n\n{ALL_METRICS[0]}",
+            fontsize=7.5,
+        )
+
+        for ci, metric in enumerate(ALL_METRICS):
+            ax = axes[ri][ci]
+            lower_b = metric in LOWER_IS_BETTER
+
+            # Paired merge on Filename + Class_Name
+            ref_sub = ref_df[ref_df["Class_Name"] == cls][
+                ["Filename", metric]
+            ].dropna()
+            bsl_sub = bsl_df[bsl_df["Class_Name"] == cls][
+                ["Filename", metric]
+            ].dropna()
+
+            merged = pd.merge(
+                ref_sub, bsl_sub,
+                on="Filename", suffixes=("_ref", "_bsl")
+            ).dropna()
+            merged = merged[
+                np.isfinite(merged[f"{metric}_ref"]) &
+                np.isfinite(merged[f"{metric}_bsl"])
+            ]
+
+            if len(merged) < 3:
+                ax.text(0.5, 0.5, "Insufficient\npaired data",
+                        ha="center", va="center",
+                        fontsize=8, color="#aaaaaa",
+                        transform=ax.transAxes)
+                ax.axis("off")
+                continue
+
+            out = draw_paired_panel(
+                ax,
+                ref_vals  = merged[f"{metric}_ref"].values,
+                bsl_vals  = merged[f"{metric}_bsl"].values,
+                filenames = merged["Filename"].values,
+                ref_name  = REFERENCE_MODEL,
+                bsl_name  = baseline,
+                metric    = metric,
+                lower_is_better = lower_b,
+                rng       = rng,
+            )
+
+            if ri > 0:
+                ax.set_title("")   # only show metric title on first row
+
+            summary_records.append({
+                "Class":       cls,
+                "Metric":      metric,
+                "Baseline":    baseline,
+                "N_pairs":     out["n_pairs"],
+                "Ref_median":  round(out["ref_median"], 4),
+                "Bsl_median":  round(out["bsl_median"], 4),
+                "Ref_IQR":     round(out["ref_iqr"],    4),
+                "Bsl_IQR":     round(out["bsl_iqr"],    4),
+                "N_plus (ref wins)":   out["n_plus"],
+                "N_minus (bsl wins)":  out["n_minus"],
+                "Ties":        out["ties"],
+                "Win_pct_ref": round(100 * out["n_plus"] / max(out["n_pairs"], 1), 1),
+                "Paired_Wilcoxon_p": round(out["p_val"], 5)
+                                      if not np.isnan(out["p_val"]) else np.nan,
+                "Stars":       out["stars"],
+                "Hedges_g":    round(out["g"],    3) if not np.isnan(out["g"])    else np.nan,
+                "g_CI_lo":     round(out["g_lo"], 3) if not np.isnan(out["g_lo"]) else np.nan,
+                "g_CI_hi":     round(out["g_hi"], 3) if not np.isnan(out["g_hi"]) else np.nan,
+            })
+
+    # ── Legend ──
+    legend_handles = [
+        mlines.Line2D([0], [0], color=MODEL_COLORS.get(REFERENCE_MODEL, "#0077BB"),
+                      lw=2.0, label=f"★ {REFERENCE_MODEL} (reference)"),
+    ]
+    for bsl in baselines:
+        legend_handles.append(
+            mlines.Line2D([0], [0], color=MODEL_COLORS.get(bsl, "#888888"),
+                          lw=2.0, label=bsl)
+        )
+    legend_handles += [
+        mlines.Line2D([0], [0], color=WIN_COLOR,  lw=1.0, alpha=0.7,
+                      label=f"{REFERENCE_MODEL} wins (red line)"),
+        mlines.Line2D([0], [0], color=LOSE_COLOR, lw=1.0, alpha=0.7,
+                      label="Baseline wins (blue line)"),
+        mlines.Line2D([0], [0], color=TIE_COLOR,  lw=1.0, alpha=0.7,
+                      label="Tie (grey line)"),
+    ]
+
+    fig.legend(
+        handles        = legend_handles,
+        loc            = "lower center",
+        ncol           = len(legend_handles),
+        frameon        = False,
+        fontsize       = 7.5,
+        bbox_to_anchor = (0.5, -0.01),
+    )
+
+    fig.suptitle(
+        f"Paired violin + box plots with patient-level connecting lines — {cls}\n"
+        f"Red line = {REFERENCE_MODEL} wins that patient  |  "
+        f"Blue line = baseline wins  |  "
+        f"Bracket: paired Wilcoxon p-value  |  "
+        f"N+ / N− = concordant / discordant pairs  |  "
+        f"g = paired Hedges' g [95% bootstrap CI]",
+        fontsize=9, fontweight="bold", y=1.002,
+    )
+
+    plt.tight_layout(w_pad=3.5, h_pad=1.5,
+                     rect=[0, 0.04, 1, 0.998])
+
+    safe_cls = cls.replace(" ", "_")
+    png_path = os.path.join(SAVE_DIR, f"PairedViolin_{safe_cls}.png")
+    pdf_path = os.path.join(SAVE_DIR, f"PairedViolin_{safe_cls}.pdf")
+    plt.savefig(png_path, dpi=600, bbox_inches="tight", facecolor="white")
+    plt.savefig(pdf_path, format="pdf", bbox_inches="tight", facecolor="white")
+    plt.show()
+    print(f"Saved → {png_path}")
+
+# =============================================================================
+# 7. COMBINED SUMMARY FIGURE — median difference heatmap across all classes
+# Rows = class × baseline, columns = metrics
+# Colour = direction and magnitude of median difference
+# =============================================================================
+
+df_sum = pd.DataFrame(summary_records)
+
+# Compute signed median difference (reference − baseline, sign-flipped for
+# distance metrics so positive always means reference is better)
+df_sum["Med_diff_signed"] = df_sum.apply(
+    lambda r: (r["Ref_median"] - r["Bsl_median"])
+              * (-1 if r["Metric"] in LOWER_IS_BETTER else 1),
+    axis=1,
 )
-legend.get_title().set_fontweight("bold")
 
-# =============================================================================
-# 12. TITLES & SUBTITLES
-# =============================================================================
+row_labels = [f"{cls}\nvs {bsl}"
+              for cls in classes for bsl in baselines]
+n_rows_h   = len(classes) * len(baselines)
 
-direction_note = "lower = better" if LOWER_IS_BETTER else "higher = better"
-n_scans = df_main["Filename"].nunique()
+diff_mat  = np.full((n_rows_h, len(ALL_METRICS)), np.nan)
+star_mat  = [["" for _ in ALL_METRICS] for _ in range(n_rows_h)]
+g_mat     = np.full((n_rows_h, len(ALL_METRICS)), np.nan)
 
-fig.text(
-    0.06, 0.96,
-    f"Comparative {METRIC} performance across anatomical classes",
-    fontsize=10, fontweight="bold", va="top", ha="left", color="#111111",
+for ri, (cls, bsl) in enumerate(
+    [(c, b) for c in classes for b in baselines]
+):
+    sub = df_sum[(df_sum["Class"] == cls) & (df_sum["Baseline"] == bsl)]
+    for ci, metric in enumerate(ALL_METRICS):
+        row = sub[sub["Metric"] == metric]
+        if row.empty:
+            continue
+        diff_mat[ri, ci] = row.iloc[0]["Med_diff_signed"]
+        star_mat[ri][ci] = row.iloc[0]["Stars"]
+        g_mat[ri, ci]    = row.iloc[0]["Hedges_g"]
+
+v_abs = np.nanmax(np.abs(diff_mat)) if np.any(np.isfinite(diff_mat)) else 1.0
+
+FIG5_W = len(ALL_METRICS) * 2.2 + 3.5
+FIG5_H = max(6, n_rows_h * 0.55 + 2.0)
+fig5, ax5 = plt.subplots(figsize=(FIG5_W, FIG5_H))
+
+from matplotlib.colors import TwoSlopeNorm
+norm5 = TwoSlopeNorm(vmin=-v_abs, vcenter=0, vmax=v_abs)
+cmap5 = plt.cm.RdBu      # red = reference better (positive diff), blue = worse
+
+im5 = ax5.imshow(diff_mat, cmap=cmap5, norm=norm5, aspect="auto")
+
+for ri in range(n_rows_h):
+    for ci, metric in enumerate(ALL_METRICS):
+        v  = diff_mat[ri, ci]
+        st = star_mat[ri][ci]
+        g  = g_mat[ri, ci]
+        if np.isnan(v):
+            ax5.text(ci, ri, "—", ha="center", va="center",
+                     fontsize=7, color="#aaaaaa")
+            continue
+        txt_col = "white" if abs(v) > v_abs * 0.6 else "#111111"
+        ax5.text(ci, ri - 0.15,
+                 f"{v:+.3f}",
+                 ha="center", va="center",
+                 fontsize=7, color=txt_col, fontweight="bold")
+        label_parts = []
+        if st and st != "ns":
+            label_parts.append(st)
+        if not np.isnan(g):
+            label_parts.append(f"g={g:+.2f}")
+        if label_parts:
+            ax5.text(ci, ri + 0.25,
+                     "  ".join(label_parts),
+                     ha="center", va="center",
+                     fontsize=5.2, color=txt_col)
+
+# Class group separator lines
+for gi in range(len(classes)):
+    y_sep = gi * len(baselines) - 0.5
+    if y_sep > -0.5:
+        ax5.axhline(y_sep, color="#333333", lw=1.0, zorder=5)
+
+for k in range(len(ALL_METRICS) + 1):
+    ax5.axvline(k - 0.5, color="#cccccc", lw=0.4)
+for k in range(n_rows_h + 1):
+    ax5.axhline(k - 0.5, color="#cccccc", lw=0.4)
+
+ax5.set_xticks(range(len(ALL_METRICS)))
+ax5.set_xticklabels(ALL_METRICS, fontsize=9, fontweight="bold")
+ax5.set_yticks(range(n_rows_h))
+ax5.set_yticklabels(row_labels, fontsize=7)
+ax5.set_title(
+    f"Summary: signed median difference  ({REFERENCE_MODEL} − baseline)\n"
+    "Red = reference model better  |  Blue = baseline better  |  "
+    "Value = median diff  |  Stars = paired Wilcoxon  |  g = Hedges' g\n"
+    "(distance metrics sign-flipped so red = better always)",
+    fontsize=9, fontweight="bold", pad=6,
 )
-fig.text(
-    0.06, 0.915,
-    (f"{AGG_FN.capitalize()} per-patient {METRIC} (mm)  |  "
-     f"{direction_note}  |  "
-     f"n = {n_scans} scans  |  "
-     f"Radial scale normalised per class; labels show approx. raw values"),
-    fontsize=7.5, va="top", ha="left", color="#555555", style="italic",
-)
+ax5.tick_params(length=0)
 
-# Panel label — uncomment if part of a multi-panel figure
-# fig.text(0.01, 0.99, "b", fontsize=12, fontweight="bold", va="top", ha="left")
+cb5 = plt.colorbar(im5, ax=ax5, fraction=0.025, pad=0.03)
+cb5.ax.tick_params(labelsize=7.5)
+cb5.set_label(f"{REFERENCE_MODEL} better → / ← baseline better", fontsize=7.5)
 
-# =============================================================================
-# 13. SAVE
-# =============================================================================
-
-png_path = os.path.join(SAVE_DIR, f"{METRIC}_Boundary_Radar_NatureMedicine.png")
-pdf_path = os.path.join(SAVE_DIR, f"{METRIC}_Boundary_Radar_NatureMedicine.pdf")
-
-plt.savefig(png_path, dpi=600, bbox_inches="tight", facecolor="white")
-plt.savefig(pdf_path, format="pdf",  bbox_inches="tight", facecolor="white")
+plt.tight_layout()
+sum_png = os.path.join(SAVE_DIR, "PairedViolin_SummaryHeatmap.png")
+sum_pdf = os.path.join(SAVE_DIR, "PairedViolin_SummaryHeatmap.pdf")
+plt.savefig(sum_png, dpi=600, bbox_inches="tight", facecolor="white")
+plt.savefig(sum_pdf, format="pdf", bbox_inches="tight", facecolor="white")
 plt.show()
+print(f"Saved summary heatmap → {sum_png}")
 
-print(f"\nRadar plot saved →\n  {png_path}\n  {pdf_path}")    
+# =============================================================================
+# 8. EXCEL STATISTICS TABLE
+# =============================================================================
+
+stats_path = os.path.join(SAVE_DIR, "PairedViolin_Statistics.xlsx")
+
+with pd.ExcelWriter(stats_path, engine="openpyxl") as writer:
+    df_sum.to_excel(writer, index=False, sheet_name="PairedStats")
+
+    ws = writer.sheets["PairedStats"]
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
+    thin     = Border(**{s: Side(style="thin", color="CCCCCC")
+                         for s in ("left","right","top","bottom")})
+    hdr_fill = PatternFill("solid", fgColor="1F4E79")
+    hdr_font = Font(bold=True, color="FFFFFF", size=8, name="Helvetica")
+
+    sig_fill  = PatternFill("solid", fgColor="D5E8D4")   # significant
+    ns_fill   = PatternFill("solid", fgColor="F8F8F8")
+    alt_fill  = PatternFill("solid", fgColor="EBF3FB")
+    warn_fill = PatternFill("solid", fgColor="FFE6CC")   # baseline wins
+
+    # Find column indices
+    col_names = list(df_sum.columns)
+    star_col  = col_names.index("Stars") + 1         if "Stars"    in col_names else None
+    win_col   = col_names.index("Win_pct_ref") + 1   if "Win_pct_ref" in col_names else None
+
+    for cell in ws[1]:
+        cell.fill = hdr_fill; cell.font = hdr_font
+        cell.alignment = Alignment(horizontal="center")
+        cell.border = thin
+
+    for row_idx, (_, row) in enumerate(df_sum.iterrows(), start=2):
+        stars    = row.get("Stars", "")
+        win_pct  = row.get("Win_pct_ref", 50)
+
+        if stars not in ("ns", "", None) and not pd.isna(stars):
+            fill = sig_fill if win_pct >= 50 else warn_fill
+        else:
+            fill = alt_fill if row_idx % 2 == 0 else ns_fill
+
+        for cell in ws[row_idx]:
+            cell.border    = thin
+            cell.alignment = Alignment(horizontal="center")
+            cell.font      = Font(size=8, name="Helvetica")
+            cell.fill      = fill
+
+    for col in ws.columns:
+        ws.column_dimensions[col[0].column_letter].width = 17
+
+print(f"Statistics saved → {stats_path}")
+
+# =============================================================================
+# 9. CONSOLE REPORT
+# =============================================================================
+
+print("\n" + "=" * 78)
+print(f"PAIRED STATISTICS REPORT  ({REFERENCE_MODEL} vs baselines)")
+print("=" * 78)
+
+for metric in ALL_METRICS:
+    print(f"\n{metric}:")
+    sub = df_sum[df_sum["Metric"] == metric]
+    print(f"  {'Class':<22} {'Baseline':<12} {'N':>5} "
+          f"{'N+':>5} {'N−':>5} {'Win%':>7} {'p':>10} {'g':>8}")
+    print("  " + "-" * 76)
+    for _, row in sub.sort_values(["Class", "Baseline"]).iterrows():
+        print(
+            f"  {row['Class']:<22} {row['Baseline']:<12} "
+            f"{int(row['N_pairs']):>5} "
+            f"{int(row['N_plus (ref wins)']):>5} "
+            f"{int(row['N_minus (bsl wins)']):>5} "
+            f"{row['Win_pct_ref']:>6.1f}% "
+            f"{str(row.get('Paired_Wilcoxon_p','—')):>10} "
+            f"{str(row.get('Hedges_g','—')):>8}"
+            f"  {row['Stars']}"
+        )
+
+print(f"\nAll outputs in: {SAVE_DIR}")
 
 
 
@@ -7848,7 +9578,51 @@ print(f"\nRadar plot saved →\n  {png_path}\n  {pdf_path}")
 
 
 
-################################################################################################################
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -7926,8 +9700,8 @@ excel_files_bnd = [
 ]
 
 # ── Metrics ──
-SEG_METRICS = ["Dice", "IoU"]          # overlap metrics (higher = better)
-BND_METRICS = ["HD95", "ASD"]          # distance metrics (lower = better)
+SEG_METRICS = ["Dice", "IoU","Recall", "Specificity"]          # overlap metrics (higher = better)
+BND_METRICS = ["HD95", "ASD", "NSD", "RAVD"]          # distance metrics (lower = better)
 LOWER_IS_BETTER = {"HD95", "ASD", "HD", "RVD", "RAVD"}
 
 # ── Anatomical classes ──
@@ -7941,7 +9715,7 @@ N_BOOT    = 1000   # resamples for BCa bootstrap
 ALPHA_CI  = 0.05   # 95% confidence interval
 
 # ── Output ──
-SAVE_DIR = r'I:/Radiotherapy/Cervix/Paper/Result/Quantitative/ForestPlot'
+SAVE_DIR = r'I:/Radiotherapy/Cervix/Paper/Result/Quantitative/Final/Mixed/ForestPlot'
 os.makedirs(SAVE_DIR, exist_ok=True)
 
 # ── Colour palette: Wong (2011) colour-blind safe ──
@@ -8589,1436 +10363,7 @@ plt.show()
 print(f"\nForest plot saved →\n  {png_path}\n  {pdf_path}")
 print(f"All outputs in: {SAVE_DIR}")
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# =============================================================================
-# BLAND-ALTMAN PLOT — Boundary Metrics (Nature Medicine Style)
-# =============================================================================
-# Produces a Bland-Altman (mean-difference) plot for each boundary metric
-# comparing the reference / best model (BAT-RM) against every baseline.
-#
-# Layout:
-#   • One figure per metric (ASD, HD95, etc.)
-#   • One panel per baseline model within each figure
-#   • X-axis: mean of the two models' measurements per patient
-#   • Y-axis: difference (Reference − Baseline) per patient
-#
-# Annotations per panel:
-#   • Bias line      — mean difference (solid, coloured)
-#   • LoA lines      — bias ± 1.96 × SD (dashed, coloured)
-#   • 95% CI bands   — shaded around bias and LoA (BCa bootstrap, n=1000)
-#   • Scatter points — one dot per patient, colour = model, alpha for density
-#   • LOWESS trend   — detects proportional bias (non-random residual pattern)
-#   • Stats box       — bias, LoA, Shapiro-Wilk normality, n pairs
-#
-# Clinical interpretation guide printed to console for each panel.
-#
-# Bland-Altman references:
-#   Bland & Altman, Lancet 1986; Stat Methods Med Res 1999
-#   Giavarina, Biochemia Medica 2015 (tutorial)
-#
-# Nature Medicine compliance:
-#   • 600 DPI PNG + vector PDF
-#   • Helvetica-first font, pdf.fonttype=42 (TrueType embedding)
-#   • Wong (2011) colour-blind safe palette
-#   • No legend box, sentence-case titles
-#
-# Dependencies: pandas, numpy, matplotlib, scipy, statsmodels, openpyxl
-# =============================================================================
-
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
-import matplotlib.lines as mlines
-from matplotlib.gridspec import GridSpec
-from scipy import stats
-from scipy.stats import shapiro
-import os
-import warnings
-
-warnings.filterwarnings("ignore")
-
-# =============================================================================
-# 1. CONFIGURATION  — edit only this section
-# =============================================================================
-
-REFERENCE_MODEL = "BAT-RM"    # your proposed / best model
-
-excel_files_bnd = [
-    ("BAT-RM", r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/200 Epochs/boundary_metrics_epoch_200_enhanced_v5.xlsx'),
-    ("nnUNet",  r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/134 epochs/boundary_metrics_epoch_134_generated.xlsx'),
-    ("SegMamba",  r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/UNET3+_boundary_metrics_epoch_200_generated.xlsx'),
-    ("TransUNet",  r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/vanilla_unet_boundary_metrics_epoch_200_generated.xlsx'),
-    ("UNETR",  r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/nnUNet_256/boundary_metrics_nnUNet_100_epochs_generated.xlsx')
-]
-
-# excel_files_seg = [
-#     ("BAT-RM",    r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/200 Epochs/segmentation_metrics_enhanced_200_epoch_enhanced.xlsx'),
-#     ("nnUNet",    r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/134 epochs/segmentation_metrics_detailed_epoch_134_generated.xlsx'),
-#     ("SegMamba",  r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/UNET3+_segmentation_metrics_detailed_epoch_200_generated.xlsx'),
-#     ("TransUNet", r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/vanilla_unet_segmentation_metrics_detailed_epoch_200_generated.xlsx'),
-#     ("UNETR",     r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/nnUNet_256/Segmentation_Cervix_small_Axial_axis_pytorch_detailed_metrics_Generated.xlsx'),
-# ]
-
-# excel_files_bnd = [
-#     ("BAT-RM", r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/200 Epochs/boundary_metrics_epoch_200_enhanced_v5.xlsx'),
-#     ("nnUNet",  r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/134 epochs/boundary_metrics_epoch_134_generated.xlsx'),
-#     ("SegMamba",  r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/UNET3+_boundary_metrics_epoch_200_generated.xlsx'),
-#     ("TransUNet",  r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/vanilla_unet_boundary_metrics_epoch_200_generated.xlsx'),
-#     ("UNETR",  r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/nnUNet_256/boundary_metrics_nnUNet_100_epochs_generated.xlsx')
-# ]
-
-# Boundary metrics to plot (one full figure per metric)
-BND_METRICS = ["ASD", "HD95", "HD"]
-
-# Anatomical classes — one Bland-Altman panel per class × baseline combination
-class_list = [
-    "BODY", "URINARY BLADDER", "SMALL BOWEL",
-    "RECTUM", "FEMORAL HEAD", "GTV", "CTV",
-]
-
-# Bootstrap settings for CI bands
-N_BOOT   = 1000
-ALPHA_CI = 0.05     # 95% CI
-
-# LOWESS smoothing fraction (0.5 = smooth, 0.2 = follows data more closely)
-LOWESS_FRAC = 0.5
-
-SAVE_DIR = r'I:/Radiotherapy/Cervix/Paper/Result/Quantitative/BlandAltman'
-os.makedirs(SAVE_DIR, exist_ok=True)
-
-# Wong (2011) colour-blind safe palette
-MODEL_COLORS = {
-    "BAT-RM":    "#0077BB",
-    "nnUNet":    "#009988",
-    "SegMamba":  "#EE7733",
-    "TransUNet": "#CC3311",
-    "UNETR":     "#AA4499",
-}
-
-# =============================================================================
-# 2. MATPLOTLIB GLOBAL STYLE  (Nature Medicine)
-# =============================================================================
-
-plt.rcParams.update({
-    "font.family":      "sans-serif",
-    "font.sans-serif":  ["Helvetica", "Arial", "DejaVu Sans"],
-    "font.size":        9,
-    "axes.titlesize":   9,
-    "axes.labelsize":   8.5,
-    "xtick.labelsize":  7.5,
-    "ytick.labelsize":  7.5,
-    "axes.linewidth":   0.6,
-    "grid.linewidth":   0.35,
-    "axes.facecolor":   "white",
-    "figure.facecolor": "white",
-    "pdf.fonttype":     42,
-    "ps.fonttype":      42,
-    "figure.dpi":       150,
-    "savefig.dpi":      600,
-})
-
-# =============================================================================
-# 3. DATA LOADING
-# =============================================================================
-
-def load_boundary(excel_files, metrics, class_list):
-    """
-    Load wide-format boundary Excel (Detailed_Per_Instance sheet).
-    Returns long-format DataFrame: Filename | Class_Name | Model | <metrics>
-    Builds one row-block per class per file — no iterative merge, no
-    duplicate-column suffix errors.
-    """
-    all_data = []
-
-    for name, path in excel_files:
-        df = pd.read_excel(path, sheet_name="Detailed_Per_Instance")
-        file_rows = []
-
-        for cls in class_list:
-            present = f"{cls}_Present_In_GT"
-            gt_vol  = f"{cls}_GT_Volume"
-
-            if present in df.columns:
-                sub = df[df[present] == True].copy()
-            elif gt_vol in df.columns:
-                sub = df[df[gt_vol] > 0].copy()
-            else:
-                sub = df.copy()
-
-            if sub.empty:
-                continue
-
-            cls_cols = {"Filename": sub["Filename"].values}
-            any_found = False
-
-            for m in metrics:
-                col = f"{cls}_{m}"
-                if col not in df.columns:
-                    cls_cols[m] = np.nan
-                    continue
-                vals = pd.to_numeric(sub[col], errors="coerce").values
-                vals = np.where(np.isfinite(vals), vals, np.nan)
-                cls_cols[m] = vals
-                any_found = True
-
-            if not any_found:
-                continue
-
-            tmp = pd.DataFrame(cls_cols)
-            tmp["Class_Name"] = cls.upper().strip()
-            tmp["Model"]      = name
-            tmp = tmp.dropna(subset=metrics, how="all")
-            file_rows.append(tmp)
-
-        if file_rows:
-            all_data.append(pd.concat(file_rows, ignore_index=True))
-
-    if not all_data:
-        raise ValueError(
-            "No boundary data loaded. Check file paths and sheet name "
-            "'Detailed_Per_Instance'."
-        )
-    return pd.concat(all_data, ignore_index=True)
-
-
-df_bnd = load_boundary(excel_files_bnd, BND_METRICS, class_list)
-
-model_names = [m for m, _ in excel_files_bnd]
-baselines   = [m for m in model_names if m != REFERENCE_MODEL]
-classes     = [c.upper().strip() for c in class_list
-               if c.upper().strip() in df_bnd["Class_Name"].unique()]
-
-print(f"Models   : {model_names}")
-print(f"Classes  : {classes}")
-print(f"Metrics  : {BND_METRICS}")
-print(f"Patients : {df_bnd['Filename'].nunique()}\n")
-
-# =============================================================================
-# 4. STATISTICAL HELPERS
-# =============================================================================
-
-def bland_altman_stats(ref, bsl, n_boot=1000, alpha=0.05, seed=42):
-    """
-    Compute Bland-Altman statistics for paired measurements.
-
-    Returns a dict with:
-        means       — per-pair mean  (x-axis)
-        diffs       — per-pair difference ref − bsl  (y-axis)
-        bias        — mean difference
-        loa_lo/hi   — bias ± 1.96 × SD
-        ci_bias_*   — bootstrap 95% CI for bias
-        ci_loa_lo_* — bootstrap 95% CI for lower LoA
-        ci_loa_hi_* — bootstrap 95% CI for upper LoA
-        sw_p        — Shapiro-Wilk p-value on differences
-        n           — number of pairs
-        pct_within  — % of points within LoA
-    """
-    ref, bsl = np.asarray(ref, float), np.asarray(bsl, float)
-    means = (ref + bsl) / 2.0
-    diffs = ref - bsl
-
-    bias   = diffs.mean()
-    sd     = diffs.std(ddof=1)
-    loa_lo = bias - 1.96 * sd
-    loa_hi = bias + 1.96 * sd
-
-    # Bootstrap CI (percentile method)
-    rng = np.random.default_rng(seed)
-    n   = len(diffs)
-    boot_bias  = np.empty(n_boot)
-    boot_lo    = np.empty(n_boot)
-    boot_hi    = np.empty(n_boot)
-
-    for i in range(n_boot):
-        samp       = rng.choice(diffs, size=n, replace=True)
-        b_bias     = samp.mean()
-        b_sd       = samp.std(ddof=1)
-        boot_bias[i] = b_bias
-        boot_lo[i]   = b_bias - 1.96 * b_sd
-        boot_hi[i]   = b_bias + 1.96 * b_sd
-
-    a = alpha / 2
-    sw_stat, sw_p = shapiro(diffs) if n >= 3 else (np.nan, np.nan)
-    pct_within = 100 * np.mean((diffs >= loa_lo) & (diffs <= loa_hi))
-
-    return {
-        "means":        means,
-        "diffs":        diffs,
-        "bias":         bias,
-        "sd":           sd,
-        "loa_lo":       loa_lo,
-        "loa_hi":       loa_hi,
-        "ci_bias_lo":   np.nanpercentile(boot_bias, 100 * a),
-        "ci_bias_hi":   np.nanpercentile(boot_bias, 100 * (1 - a)),
-        "ci_loa_lo_lo": np.nanpercentile(boot_lo,   100 * a),
-        "ci_loa_lo_hi": np.nanpercentile(boot_lo,   100 * (1 - a)),
-        "ci_loa_hi_lo": np.nanpercentile(boot_hi,   100 * a),
-        "ci_loa_hi_hi": np.nanpercentile(boot_hi,   100 * (1 - a)),
-        "sw_p":         sw_p,
-        "n":            n,
-        "pct_within":   pct_within,
-    }
-
-
-def lowess_curve(x, y, frac=0.5):
-    """
-    Compute LOWESS smoothed trend line.
-    Requires statsmodels; falls back to linear regression if unavailable.
-    """
-    try:
-        from statsmodels.nonparametric.smoothers_lowess import lowess
-        smoothed = lowess(y, x, frac=frac, return_sorted=True)
-        return smoothed[:, 0], smoothed[:, 1]
-    except ImportError:
-        # Fallback: simple linear regression line
-        slope, intercept, *_ = stats.linregress(x, y)
-        xs = np.linspace(x.min(), x.max(), 100)
-        return xs, intercept + slope * xs
-
-# =============================================================================
-# 5. SUMMARY STATISTICS TABLE
-# =============================================================================
-# Saved to Excel before plotting so it is available even if the figure fails.
-# =============================================================================
-
-stat_records = []
-
-ref_df = df_bnd[df_bnd["Model"] == REFERENCE_MODEL]
-
-for metric in BND_METRICS:
-    for cls in classes:
-        ref_sub = ref_df[ref_df["Class_Name"] == cls][["Filename", metric]].dropna()
-
-        for bsl in baselines:
-            bsl_sub = df_bnd[
-                (df_bnd["Model"] == cls) &      # intentional: filter by class
-                (df_bnd["Class_Name"] == cls)   # then overwrite below
-            ]
-            # Correct filter
-            bsl_sub = df_bnd[
-                (df_bnd["Model"] == bsl) &
-                (df_bnd["Class_Name"] == cls)
-            ][["Filename", metric]].dropna()
-
-            merged = pd.merge(
-                ref_sub, bsl_sub,
-                on="Filename", suffixes=("_ref", "_bsl")
-            ).dropna()
-
-            if len(merged) < 3:
-                continue
-
-            s = bland_altman_stats(
-                merged[f"{metric}_ref"].values,
-                merged[f"{metric}_bsl"].values,
-                N_BOOT, ALPHA_CI
-            )
-
-            stat_records.append({
-                "Metric":           metric,
-                "Class":            cls,
-                "Comparison":       f"{REFERENCE_MODEL} vs {bsl}",
-                "N_pairs":          s["n"],
-                "Bias":             round(s["bias"],   3),
-                "SD_diff":          round(s["sd"],     3),
-                "LoA_lower":        round(s["loa_lo"], 3),
-                "LoA_upper":        round(s["loa_hi"], 3),
-                "CI95_bias":        f"[{s['ci_bias_lo']:.3f}, {s['ci_bias_hi']:.3f}]",
-                "CI95_LoA_lower":   f"[{s['ci_loa_lo_lo']:.3f}, {s['ci_loa_lo_hi']:.3f}]",
-                "CI95_LoA_upper":   f"[{s['ci_loa_hi_lo']:.3f}, {s['ci_loa_hi_hi']:.3f}]",
-                "Shapiro_Wilk_p":   round(s["sw_p"],  4),
-                "Normal_diffs":     "Yes" if s["sw_p"] > 0.05 else "No",
-                "Pct_within_LoA":   round(s["pct_within"], 1),
-            })
-
-df_stats = pd.DataFrame(stat_records)
-stats_path = os.path.join(SAVE_DIR, "BlandAltman_Statistics.xlsx")
-df_stats.to_excel(stats_path, index=False)
-print(f"Statistics table saved → {stats_path}\n")
-
-# =============================================================================
-# 6. PLOTTING FUNCTION — single Bland-Altman panel
-# =============================================================================
-
-def draw_ba_panel(ax, s, color, title, metric, ref_name, bsl_name):
-    """
-    Draw one Bland-Altman panel onto axes `ax`.
-
-    Parameters
-    ----------
-    ax       : matplotlib Axes
-    s        : dict from bland_altman_stats()
-    color    : hex colour string for this baseline model
-    title    : panel title string (Class name)
-    metric   : metric name string (for y-label)
-    ref_name : reference model label
-    bsl_name : baseline model label
-    """
-    means = s["means"]
-    diffs = s["diffs"]
-
-    x_pad = (means.max() - means.min()) * 0.08 if means.ptp() > 0 else 1.0
-    x_lo  = means.min() - x_pad
-    x_hi  = means.max() + x_pad
-    x_range = np.array([x_lo, x_hi])
-
-    # ── Background: LoA zone shading ──
-    ax.axhspan(s["loa_lo"], s["loa_hi"],
-               color=color, alpha=0.06, zorder=0)
-
-    # ── CI bands around bias and LoA ──
-    # Bias CI
-    ax.fill_between(
-        x_range,
-        [s["ci_bias_lo"]] * 2, [s["ci_bias_hi"]] * 2,
-        color=color, alpha=0.18, zorder=1, linewidth=0,
-    )
-    # Lower LoA CI
-    ax.fill_between(
-        x_range,
-        [s["ci_loa_lo_lo"]] * 2, [s["ci_loa_lo_hi"]] * 2,
-        color=color, alpha=0.12, zorder=1, linewidth=0,
-    )
-    # Upper LoA CI
-    ax.fill_between(
-        x_range,
-        [s["ci_loa_hi_lo"]] * 2, [s["ci_loa_hi_hi"]] * 2,
-        color=color, alpha=0.12, zorder=1, linewidth=0,
-    )
-
-    # ── Reference zero line ──
-    ax.axhline(0, color="#999999", linewidth=0.7,
-               linestyle=":", zorder=2)
-
-    # ── Bias line ──
-    ax.axhline(s["bias"], color=color, linewidth=1.6,
-               linestyle="-", zorder=3, label=f"Bias {s['bias']:+.2f}")
-
-    # ── LoA lines ──
-    ax.axhline(s["loa_lo"], color=color, linewidth=1.2,
-               linestyle="--", zorder=3,
-               label=f"LoA [{s['loa_lo']:+.2f}, {s['loa_hi']:+.2f}]")
-    ax.axhline(s["loa_hi"], color=color, linewidth=1.2,
-               linestyle="--", zorder=3)
-
-    # ── Right-side labels for bias and LoA ──
-    label_x = x_hi + x_pad * 0.1
-    ax.text(label_x, s["bias"],  f"{s['bias']:+.2f}",
-            va="center", ha="left", fontsize=6.5,
-            color=color, fontweight="bold")
-    ax.text(label_x, s["loa_lo"], f"{s['loa_lo']:+.2f}",
-            va="center", ha="left", fontsize=6.0, color=color)
-    ax.text(label_x, s["loa_hi"], f"{s['loa_hi']:+.2f}",
-            va="center", ha="left", fontsize=6.0, color=color)
-
-    # ── Scatter: individual patient differences ──
-    ax.scatter(
-        means, diffs,
-        color=color, alpha=0.45, s=14, zorder=4,
-        edgecolors="white", linewidths=0.3,
-    )
-
-    # ── LOWESS trend (reveals proportional bias) ──
-    if len(means) >= 6:
-        lx, ly = lowess_curve(means, diffs, LOWESS_FRAC)
-        ax.plot(lx, ly, color="#333333", linewidth=1.0,
-                linestyle="-.", zorder=5, alpha=0.7,
-                label="LOWESS trend")
-
-    # ── Stats annotation box ──
-    sw_text = (f"SW p={s['sw_p']:.3f}"
-               if not np.isnan(s["sw_p"]) else "SW n/a")
-    normal_flag = "" if s["sw_p"] > 0.05 else " ✗"
-    stats_str = (
-        f"n={s['n']}\n"
-        f"Bias={s['bias']:+.2f} mm\n"
-        f"SD={s['sd']:.2f} mm\n"
-        f"{sw_text}{normal_flag}\n"
-        f"{s['pct_within']:.0f}% within LoA"
-    )
-    ax.text(
-        0.03, 0.97, stats_str,
-        transform=ax.transAxes,
-        va="top", ha="left", fontsize=6.5,
-        color="#222222",
-        bbox=dict(boxstyle="round,pad=0.3", facecolor="white",
-                  edgecolor="#cccccc", linewidth=0.5, alpha=0.85),
-        zorder=6,
-    )
-
-    # ── Axes formatting ──
-    ax.set_xlim(x_lo, x_hi + x_pad * 1.2)   # extra right margin for labels
-    ax.set_title(title, fontsize=8.5, fontweight="bold", pad=4)
-    ax.set_xlabel(f"Mean of {ref_name} & {bsl_name} ({metric}, mm)",
-                  fontsize=7.5, labelpad=3)
-    ax.set_ylabel(f"Difference\n{ref_name} − {bsl_name} (mm)",
-                  fontsize=7.5, labelpad=3)
-    ax.tick_params(axis="both", labelsize=7)
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    ax.spines["left"].set_linewidth(0.5)
-    ax.spines["bottom"].set_linewidth(0.5)
-    ax.grid(axis="y", linewidth=0.3, color="#eeeeee", zorder=0)
-
-# =============================================================================
-# 7. GENERATE ONE FIGURE PER METRIC
-# =============================================================================
-# Layout: rows = classes, columns = baselines
-# =============================================================================
-
-ref_df = df_bnd[df_bnd["Model"] == REFERENCE_MODEL]
-
-for metric in BND_METRICS:
-    n_rows = len(classes)
-    n_cols = len(baselines)
-
-    # Panel size: 3.2 in wide × 3.0 in tall each
-    FIG_W = n_cols * 3.2 + 0.8
-    FIG_H = n_rows * 3.0 + 1.2
-
-    fig, axes = plt.subplots(
-        n_rows, n_cols,
-        figsize=(FIG_W, FIG_H),
-        squeeze=False,
-    )
-
-    fig.suptitle(
-        f"Bland-Altman analysis — {metric} (mm)  |  "
-        f"Reference: {REFERENCE_MODEL}  |  "
-        f"Error bars: 95% bootstrap CI",
-        fontsize=11, fontweight="bold", y=0.995,
-    )
-    fig.text(
-        0.5, 0.983,
-        "Dashed lines: limits of agreement (bias ± 1.96 SD)  |  "
-        "Shaded bands: 95% CI  |  "
-        "Dash-dot: LOWESS trend  |  "
-        "✗ = differences non-normal (Shapiro-Wilk p<0.05)",
-        ha="center", fontsize=7.5, color="#555555", style="italic",
-    )
-
-    # ── Column headers (baseline model names) ──
-    for ci, bsl in enumerate(baselines):
-        axes[0, ci].set_title(
-            f"{REFERENCE_MODEL} vs {bsl}\n",
-            fontsize=9, fontweight="bold", color=MODEL_COLORS.get(bsl, "#333"),
-            pad=6,
-        )
-
-    # ── Draw each panel ──
-    for ri, cls in enumerate(classes):
-        ref_sub = ref_df[
-            ref_df["Class_Name"] == cls
-        ][["Filename", metric]].dropna()
-
-        for ci, bsl in enumerate(baselines):
-            ax    = axes[ri, ci]
-            color = MODEL_COLORS.get(bsl, "#888888")
-
-            bsl_sub = df_bnd[
-                (df_bnd["Model"] == bsl) &
-                (df_bnd["Class_Name"] == cls)
-            ][["Filename", metric]].dropna()
-
-            merged = pd.merge(
-                ref_sub, bsl_sub,
-                on="Filename", suffixes=("_ref", "_bsl")
-            ).dropna()
-
-            # Drop inf values
-            merged = merged[
-                np.isfinite(merged[f"{metric}_ref"]) &
-                np.isfinite(merged[f"{metric}_bsl"])
-            ]
-
-            if len(merged) < 3:
-                ax.text(0.5, 0.5, "Insufficient\npaired data",
-                        ha="center", va="center",
-                        fontsize=8, color="#aaaaaa",
-                        transform=ax.transAxes)
-                ax.set_title(cls, fontsize=8.5, fontweight="bold")
-                ax.axis("off")
-                continue
-
-            s = bland_altman_stats(
-                merged[f"{metric}_ref"].values,
-                merged[f"{metric}_bsl"].values,
-                N_BOOT, ALPHA_CI,
-            )
-
-            draw_ba_panel(
-                ax, s, color,
-                title  = cls,
-                metric = metric,
-                ref_name = REFERENCE_MODEL,
-                bsl_name = bsl,
-            )
-
-            # Console clinical interpretation
-            bias_flag = (
-                "✓ negligible bias" if abs(s["bias"]) < 1.0 else
-                "⚠ moderate bias"   if abs(s["bias"]) < 3.0 else
-                "✗ large bias"
-            )
-            loa_width = s["loa_hi"] - s["loa_lo"]
-            loa_flag  = (
-                "✓ narrow LoA"   if loa_width < 4.0 else
-                "⚠ moderate LoA" if loa_width < 8.0 else
-                "✗ wide LoA"
-            )
-            print(
-                f"[{metric}] {cls:20s} | {REFERENCE_MODEL} vs {bsl:10s} | "
-                f"n={s['n']:3d} | bias={s['bias']:+.2f} mm "
-                f"[{s['loa_lo']:+.2f}, {s['loa_hi']:+.2f}] | "
-                f"{bias_flag} | {loa_flag}"
-            )
-
-    plt.tight_layout(rect=[0, 0, 1, 0.982])
-
-    # ── Legend (shared, bottom of figure) ──
-    legend_handles = []
-    for bsl in baselines:
-        c = MODEL_COLORS.get(bsl, "#888888")
-        legend_handles += [
-            mlines.Line2D([0], [0], color=c, lw=1.6,
-                          label=f"{REFERENCE_MODEL} vs {bsl} — bias"),
-            mlines.Line2D([0], [0], color=c, lw=1.2, linestyle="--",
-                          label=f"{REFERENCE_MODEL} vs {bsl} — LoA"),
-        ]
-    legend_handles.append(
-        mlines.Line2D([0], [0], color="#333333", lw=1.0, linestyle="-.",
-                      label="LOWESS trend")
-    )
-
-    fig.legend(
-        handles        = legend_handles,
-        loc            = "lower center",
-        ncol           = len(baselines) + 1,
-        frameon        = False,
-        fontsize       = 7.5,
-        bbox_to_anchor = (0.5, -0.01),
-    )
-
-    # ── Save ──
-    png_path = os.path.join(SAVE_DIR, f"{metric}_BlandAltman_NatureMedicine.png")
-    pdf_path = os.path.join(SAVE_DIR, f"{metric}_BlandAltman_NatureMedicine.pdf")
-    plt.savefig(png_path, dpi=600, bbox_inches="tight", facecolor="white")
-    plt.savefig(pdf_path, format="pdf", bbox_inches="tight", facecolor="white")
-    plt.show()
-    print(f"\n{metric} Bland-Altman saved →\n  {png_path}\n  {pdf_path}\n")
-
-print(f"All outputs in: {SAVE_DIR}")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# =============================================================================
-# CALIBRATION / ERROR DISTRIBUTION PLOT
-# Nature Medicine Style — Per-Patient HD95 & ASD Error Distributions
-# =============================================================================
-#
-# Produces TWO publication-ready outputs per metric (HD95, ASD):
-#
-#   OUTPUT 1 — KDE + Rug plot (main figure, PNG 600 DPI + PDF)
-#     • Smoothed kernel density estimate per model (overlaid, semi-transparent)
-#     • Rug ticks at the bottom: every patient's actual error value
-#     • Right-tail shading: region beyond 95th percentile of reference model
-#       (marks the "clinical safety concern" zone reviewers probe)
-#     • Vertical lines: median + 95th percentile per model
-#     • Inset table: median, IQR, 95th pct, % patients > clinical threshold
-#
-#   OUTPUT 2 — Violin + Strip plot (supplementary, PNG 600 DPI + PDF)
-#     • One panel per class
-#     • Violin shows full distribution shape
-#     • Strip of individual patient dots overlaid (jittered)
-#     • Median bar inside violin
-#
-# Layout: one row per anatomical class, one column per metric
-#
-# Clinical threshold defaults (mm) — adjust to your RT protocol:
-#   HD95: 5 mm  (common planning margin for pelvic targets)
-#   ASD:  2 mm
-#
-# Statistical annotations:
-#   • Kolmogorov-Smirnov test vs reference model (tests if distributions differ)
-#   • Right-tail ratio: P(model > threshold) / P(reference > threshold)
-#     RTR > 1 → model has proportionally more extreme errors (bad)
-#     RTR < 1 → model is safer
-#
-# Dependencies: pandas, numpy, matplotlib, scipy, openpyxl
-# =============================================================================
-
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
-import matplotlib.lines as mlines
-import matplotlib.gridspec as gridspec
-from matplotlib.patches import FancyArrowPatch
-from scipy.stats import gaussian_kde, ks_2samp
-import os
-import warnings
-
-warnings.filterwarnings("ignore")
-
-# =============================================================================
-# 1. CONFIGURATION  — edit only this section
-# =============================================================================
-
-REFERENCE_MODEL = "BAT-RM"
-
-excel_files_bnd = [
-    ("BAT-RM", r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/200 Epochs/boundary_metrics_epoch_200_enhanced_v5.xlsx'),
-    ("nnUNet",  r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/134 epochs/boundary_metrics_epoch_134_generated.xlsx'),
-    ("SegMamba",  r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/UNET3+_boundary_metrics_epoch_200_generated.xlsx'),
-    ("TransUNet",  r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/vanilla_unet_boundary_metrics_epoch_200_generated.xlsx'),
-    ("UNETR",  r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/nnUNet_256/boundary_metrics_nnUNet_100_epochs_generated.xlsx')
-]
-
-
-# excel_files_seg = [
-#     ("BAT-RM",    r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/200 Epochs/segmentation_metrics_enhanced_200_epoch_enhanced.xlsx'),
-#     ("nnUNet",    r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/134 epochs/segmentation_metrics_detailed_epoch_134_generated.xlsx'),
-#     ("SegMamba",  r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/UNET3+_segmentation_metrics_detailed_epoch_200_generated.xlsx'),
-#     ("TransUNet", r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/vanilla_unet_segmentation_metrics_detailed_epoch_200_generated.xlsx'),
-#     ("UNETR",     r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/nnUNet_256/Segmentation_Cervix_small_Axial_axis_pytorch_detailed_metrics_Generated.xlsx'),
-# ]
-
-# excel_files_bnd = [
-#     ("BAT-RM", r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/200 Epochs/boundary_metrics_epoch_200_enhanced_v5.xlsx'),
-#     ("nnUNet",  r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/134 epochs/boundary_metrics_epoch_134_generated.xlsx'),
-#     ("SegMamba",  r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/UNET3+_boundary_metrics_epoch_200_generated.xlsx'),
-#     ("TransUNet",  r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/vanilla_unet_boundary_metrics_epoch_200_generated.xlsx'),
-#     ("UNETR",  r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/nnUNet_256/boundary_metrics_nnUNet_100_epochs_generated.xlsx')
-# ]
-
-BND_METRICS = ["HD95", "ASD"]
-
-class_list = [
-    "BODY", "URINARY BLADDER", "SMALL BOWEL",
-    "RECTUM", "FEMORAL HEAD", "GTV", "CTV",
-]
-
-# Clinical safety thresholds (mm) — errors ABOVE these are flagged
-CLINICAL_THRESHOLDS = {
-    "HD95": 5.0,   # mm — adjust to your protocol
-    "ASD":  2.0,   # mm
-}
-
-# KDE bandwidth method ('scott', 'silverman', or a float multiplier)
-KDE_BW = "scott"
-
-# X-axis cap for plotting (outliers beyond this are still counted in stats)
-X_CAP = {
-    "HD95": 30.0,  # mm
-    "ASD":  10.0,  # mm
-}
-
-# Wong (2011) colour-blind safe palette
-MODEL_COLORS = {
-    "BAT-RM":    "#0077BB",
-    "nnUNet":    "#009988",
-    "SegMamba":  "#EE7733",
-    "TransUNet": "#CC3311",
-    "UNETR":     "#AA4499",
-}
-
-SAVE_DIR = r'I:/Radiotherapy/Cervix/Paper/Result/Quantitative/ErrorDistribution'
-os.makedirs(SAVE_DIR, exist_ok=True)
-
-# =============================================================================
-# 2. MATPLOTLIB GLOBAL STYLE  (Nature Medicine)
-# =============================================================================
-
-plt.rcParams.update({
-    "font.family":      "sans-serif",
-    "font.sans-serif":  ["Helvetica", "Arial", "DejaVu Sans"],
-    "font.size":        9,
-    "axes.titlesize":   9,
-    "axes.labelsize":   8.5,
-    "xtick.labelsize":  7.5,
-    "ytick.labelsize":  7.5,
-    "axes.linewidth":   0.6,
-    "grid.linewidth":   0.35,
-    "axes.facecolor":   "white",
-    "figure.facecolor": "white",
-    "pdf.fonttype":     42,
-    "ps.fonttype":      42,
-    "figure.dpi":       150,
-    "savefig.dpi":      600,
-})
-
-# =============================================================================
-# 3. DATA LOADING
-# =============================================================================
-
-def load_boundary(excel_files, metrics, class_list):
-    all_data = []
-    for name, path in excel_files:
-        df = pd.read_excel(path, sheet_name="Detailed_Per_Instance")
-        file_rows = []
-        for cls in class_list:
-            present = f"{cls}_Present_In_GT"
-            gt_vol  = f"{cls}_GT_Volume"
-            if present in df.columns:
-                sub = df[df[present] == True].copy()
-            elif gt_vol in df.columns:
-                sub = df[df[gt_vol] > 0].copy()
-            else:
-                sub = df.copy()
-            if sub.empty:
-                continue
-            cls_cols = {"Filename": sub["Filename"].values}
-            any_found = False
-            for m in metrics:
-                col = f"{cls}_{m}"
-                if col not in df.columns:
-                    cls_cols[m] = np.nan
-                    continue
-                vals = pd.to_numeric(sub[col], errors="coerce").values
-                vals = np.where(np.isfinite(vals), vals, np.nan)
-                cls_cols[m] = vals
-                any_found = True
-            if not any_found:
-                continue
-            tmp = pd.DataFrame(cls_cols)
-            tmp["Class_Name"] = cls.upper().strip()
-            tmp["Model"]      = name
-            tmp = tmp.dropna(subset=metrics, how="all")
-            file_rows.append(tmp)
-        if file_rows:
-            all_data.append(pd.concat(file_rows, ignore_index=True))
-    if not all_data:
-        raise ValueError("No boundary data loaded. Check file paths and sheet name.")
-    return pd.concat(all_data, ignore_index=True)
-
-
-df_bnd = load_boundary(excel_files_bnd, BND_METRICS, class_list)
-
-model_names = [m for m, _ in excel_files_bnd]
-baselines   = [m for m in model_names if m != REFERENCE_MODEL]
-classes     = [c.upper().strip() for c in class_list
-               if c.upper().strip() in df_bnd["Class_Name"].unique()]
-
-print(f"Models   : {model_names}")
-print(f"Classes  : {classes}")
-print(f"Metrics  : {BND_METRICS}")
-print(f"Patients : {df_bnd['Filename'].nunique()}\n")
-
-# =============================================================================
-# 4. STATISTICS HELPER
-# =============================================================================
-
-def error_stats(vals, threshold):
-    vals = np.array(vals)
-    vals = vals[np.isfinite(vals)]
-    if len(vals) == 0:
-        return {}
-    return {
-        "n":          len(vals),
-        "median":     np.median(vals),
-        "q25":        np.percentile(vals, 25),
-        "q75":        np.percentile(vals, 75),
-        "p95":        np.percentile(vals, 95),
-        "mean":       vals.mean(),
-        "std":        vals.std(ddof=1),
-        "pct_exceed": 100 * np.mean(vals > threshold),
-        "max":        vals.max(),
-    }
-
-# =============================================================================
-# 5. FIGURE 1 — KDE + RUG PLOT (main figure)
-# Layout: rows = classes, columns = metrics
-# =============================================================================
-
-n_rows = len(classes)
-n_cols = len(BND_METRICS)
-
-FIG_W = n_cols * 5.5 + 0.5
-FIG_H = n_rows * 3.2 + 1.5
-
-fig, axes = plt.subplots(
-    n_rows, n_cols,
-    figsize=(FIG_W, FIG_H),
-    squeeze=False,
-)
-
-fig.suptitle(
-    "Per-patient error distributions — KDE overlay across models\n"
-    "Shaded region: errors exceeding clinical safety threshold",
-    fontsize=11, fontweight="bold", y=0.998,
-)
-
-# Collect stats for console + Excel export
-all_stats = []
-
-for ri, cls in enumerate(classes):
-    for ci, metric in enumerate(BND_METRICS):
-        ax        = axes[ri, ci]
-        threshold = CLINICAL_THRESHOLDS[metric]
-        x_cap     = X_CAP[metric]
-
-        # ── Compute KDE for each model and find the global y-max ──
-        kde_curves = {}
-        x_eval     = np.linspace(0, x_cap, 500)
-
-        for model in model_names:
-            vals = df_bnd[
-                (df_bnd["Model"] == model) &
-                (df_bnd["Class_Name"] == cls)
-            ][metric].dropna().values
-            vals = vals[np.isfinite(vals)]
-            vals = np.clip(vals, 0, x_cap * 1.5)   # soft clip for KDE
-
-            if len(vals) < 4:
-                kde_curves[model] = (x_eval, np.zeros_like(x_eval), vals)
-                continue
-            try:
-                kde  = gaussian_kde(vals, bw_method=KDE_BW)
-                dens = kde(x_eval)
-            except Exception:
-                dens = np.zeros_like(x_eval)
-            kde_curves[model] = (x_eval, dens, vals)
-
-        y_max = max(
-            curve[1].max() for curve in kde_curves.values()
-            if curve[1].max() > 0
-        ) if any(c[1].max() > 0 for c in kde_curves.values()) else 1.0
-
-        # ── Right-tail danger zone (reference model 95th pct) ──
-        ref_vals = kde_curves[REFERENCE_MODEL][2]
-        ref_p95  = np.percentile(ref_vals, 95) if len(ref_vals) > 0 else threshold
-
-        ax.axvspan(
-            threshold, x_cap,
-            color="#FFCCCC", alpha=0.35, zorder=0,
-            label=f">{threshold} mm threshold",
-        )
-        ax.axvspan(
-            ref_p95, x_cap,
-            color="#FF8888", alpha=0.15, zorder=0,
-        )
-
-        # ── Threshold vertical line ──
-        ax.axvline(
-            threshold, color="#CC2222", linewidth=0.9,
-            linestyle="--", zorder=2, alpha=0.85,
-            label=f"Threshold {threshold} mm",
-        )
-
-        # ── KDE curves (reference on top, slightly thicker) ──
-        plot_order = baselines + [REFERENCE_MODEL]
-        for model in plot_order:
-            x_k, dens, vals = kde_curves[model]
-            color    = MODEL_COLORS.get(model, "#888888")
-            is_ref   = model == REFERENCE_MODEL
-            lw       = 2.2 if is_ref else 1.4
-            alpha    = 0.90 if is_ref else 0.75
-            zorder   = 5 if is_ref else 3
-
-            ax.fill_between(
-                x_k, dens,
-                color=color, alpha=0.08 if is_ref else 0.05,
-                zorder=zorder - 1,
-            )
-            ax.plot(
-                x_k, dens,
-                color=color, linewidth=lw, alpha=alpha,
-                zorder=zorder, label=model,
-            )
-
-            if len(vals) < 2:
-                continue
-
-            # Median line
-            med = np.median(vals)
-            if med <= x_cap:
-                med_dens = gaussian_kde(vals, bw_method=KDE_BW)(np.array([med]))[0] if len(vals) >= 4 else 0
-                ax.plot(
-                    [med, med], [0, med_dens],
-                    color=color, linewidth=0.9,
-                    linestyle=":", alpha=0.7, zorder=zorder,
-                )
-
-            # Rug ticks (bottom of axis)
-            rug_vals = np.clip(vals, 0, x_cap)
-            rug_y    = -0.02 * y_max
-            ax.plot(
-                rug_vals, np.full_like(rug_vals, rug_y),
-                "|", color=color, alpha=0.25,
-                markersize=4, markeredgewidth=0.6,
-            )
-
-            # Stats record
-            st = error_stats(vals, threshold)
-            if st:
-                # KS test vs reference
-                ref_v = kde_curves[REFERENCE_MODEL][2]
-                if model != REFERENCE_MODEL and len(ref_v) > 0 and len(vals) > 0:
-                    ks_stat, ks_p = ks_2samp(ref_v, vals)
-                else:
-                    ks_stat, ks_p = np.nan, np.nan
-
-                rtr = (st["pct_exceed"] / error_stats(ref_v, threshold).get("pct_exceed", 1e-9)) \
-                      if model != REFERENCE_MODEL and len(ref_v) > 0 else np.nan
-
-                all_stats.append({
-                    "Metric":              metric,
-                    "Class":               cls,
-                    "Model":               model,
-                    "N":                   st["n"],
-                    "Median_mm":           round(st["median"], 2),
-                    "IQR_mm":              f"{st['q25']:.2f}–{st['q75']:.2f}",
-                    "P95_mm":              round(st["p95"], 2),
-                    "Mean_mm":             round(st["mean"], 2),
-                    "SD_mm":               round(st["std"], 2),
-                    "Max_mm":              round(st["max"], 2),
-                    f"Pct_exceed_{threshold}mm": round(st["pct_exceed"], 1),
-                    "KS_stat_vs_ref":      round(ks_stat, 3) if not np.isnan(ks_stat) else "—",
-                    "KS_p_vs_ref":         round(ks_p,    4) if not np.isnan(ks_p)    else "—",
-                    "Right_tail_ratio":    round(rtr, 2)     if not np.isnan(rtr)      else "—",
-                })
-
-        # ── Inset summary table ──
-        table_lines = [f"{'Model':<12} {'Med':>5} {'P95':>5} {'>thr%':>6}"]
-        table_lines.append("─" * 32)
-        for model in model_names:
-            _, _, vals = kde_curves[model]
-            if len(vals) < 2:
-                continue
-            st  = error_stats(vals, threshold)
-            tag = "★ " if model == REFERENCE_MODEL else "  "
-            table_lines.append(
-                f"{tag}{model:<10} {st['median']:>5.1f} {st['p95']:>5.1f} {st['pct_exceed']:>5.1f}%"
-            )
-
-        table_text = "\n".join(table_lines)
-        ax.text(
-            0.98, 0.97, table_text,
-            transform=ax.transAxes,
-            va="top", ha="right",
-            fontsize=5.8,
-            fontfamily="monospace",
-            color="#222222",
-            bbox=dict(
-                boxstyle="round,pad=0.4",
-                facecolor="white",
-                edgecolor="#cccccc",
-                linewidth=0.5,
-                alpha=0.88,
-            ),
-            zorder=10,
-        )
-
-        # ── Axis formatting ──
-        ax.set_xlim(0, x_cap)
-        ax.set_ylim(-0.04 * y_max, y_max * 1.18)
-        ax.set_xlabel(f"{metric} (mm)", fontsize=8)
-        ax.set_ylabel("Density", fontsize=8)
-        ax.set_title(f"{cls}  —  {metric}", fontsize=8.5, fontweight="bold", pad=4)
-        ax.spines["top"].set_visible(False)
-        ax.spines["right"].set_visible(False)
-        ax.spines["left"].set_linewidth(0.5)
-        ax.spines["bottom"].set_linewidth(0.5)
-        ax.tick_params(labelsize=7)
-        ax.grid(axis="x", linewidth=0.3, color="#eeeeee", zorder=0)
-
-        # First panel only: add danger zone annotation arrow
-        if ri == 0 and ci == 0:
-            ax.annotate(
-                "Clinical\nconcern zone",
-                xy=(threshold + 0.3, y_max * 0.7),
-                xytext=(threshold + (x_cap - threshold) * 0.45, y_max * 0.9),
-                fontsize=6.5, color="#CC2222",
-                ha="center",
-                arrowprops=dict(
-                    arrowstyle="->",
-                    color="#CC2222",
-                    lw=0.8,
-                ),
-            )
-
-# ── Shared legend ──
-legend_handles = [
-    mlines.Line2D(
-        [0], [0],
-        color=MODEL_COLORS[m],
-        linewidth=2.2 if m == REFERENCE_MODEL else 1.4,
-        label=f"{m}{'  ★ reference' if m == REFERENCE_MODEL else ''}",
-    )
-    for m in model_names
-]
-legend_handles += [
-    mpatches.Patch(color="#FFCCCC", alpha=0.6, label=f"Beyond threshold"),
-    mlines.Line2D([0], [0], color="#CC2222", lw=0.9, linestyle="--",
-                  label="Clinical threshold"),
-    mlines.Line2D([0], [0], color="#888888", lw=0.9, linestyle=":",
-                  label="Model median"),
-]
-
-fig.legend(
-    handles        = legend_handles,
-    loc            = "lower center",
-    ncol           = len(model_names) + 3,
-    frameon        = False,
-    fontsize       = 8,
-    bbox_to_anchor = (0.5, -0.005),
-)
-
-plt.tight_layout(rect=[0, 0.03, 1, 0.996])
-
-kde_png = os.path.join(SAVE_DIR, "ErrorDistribution_KDE_NatureMedicine.png")
-kde_pdf = os.path.join(SAVE_DIR, "ErrorDistribution_KDE_NatureMedicine.pdf")
-plt.savefig(kde_png, dpi=600, bbox_inches="tight", facecolor="white")
-plt.savefig(kde_pdf, format="pdf", bbox_inches="tight", facecolor="white")
-plt.show()
-print(f"KDE figure saved →\n  {kde_png}\n  {kde_pdf}\n")
-
-# =============================================================================
-# 6. FIGURE 2 — VIOLIN + STRIP (supplementary)
-# =============================================================================
-
-fig2, axes2 = plt.subplots(
-    n_rows, n_cols,
-    figsize=(FIG_W, FIG_H),
-    squeeze=False,
-)
-
-fig2.suptitle(
-    "Per-patient error distributions — Violin + strip plot\n"
-    "Each dot = one patient; horizontal bar = median",
-    fontsize=11, fontweight="bold", y=0.998,
-)
-
-rng = np.random.default_rng(42)
-
-for ri, cls in enumerate(classes):
-    for ci, metric in enumerate(BND_METRICS):
-        ax        = axes2[ri, ci]
-        threshold = CLINICAL_THRESHOLDS[metric]
-        x_cap     = X_CAP[metric]
-
-        ax.axhline(threshold, color="#CC2222", linewidth=0.9,
-                   linestyle="--", alpha=0.8, zorder=2,
-                   label=f"Threshold {threshold} mm")
-
-        positions = range(len(model_names))
-
-        for pos, model in zip(positions, model_names):
-            vals = df_bnd[
-                (df_bnd["Model"] == model) &
-                (df_bnd["Class_Name"] == cls)
-            ][metric].dropna().values
-            vals = vals[np.isfinite(vals)]
-            vals = np.clip(vals, 0, x_cap * 1.5)
-
-            color    = MODEL_COLORS.get(model, "#888888")
-            is_ref   = model == REFERENCE_MODEL
-
-            if len(vals) < 4:
-                ax.scatter(
-                    [pos], [np.nan],
-                    color=color, s=8, alpha=0.5, zorder=3,
-                )
-                continue
-
-            # ── Violin ──
-            try:
-                kde    = gaussian_kde(vals, bw_method=KDE_BW)
-                y_eval = np.linspace(vals.min(), min(vals.max(), x_cap), 300)
-                dens   = kde(y_eval)
-                dens   = dens / dens.max() * 0.38   # normalise width
-
-                ax.fill_betweenx(
-                    y_eval,
-                    pos - dens,
-                    pos + dens,
-                    color=color,
-                    alpha=0.30 if is_ref else 0.18,
-                    zorder=1,
-                )
-                ax.plot(
-                    pos - dens, y_eval,
-                    color=color, linewidth=0.9 if is_ref else 0.6,
-                    alpha=0.8, zorder=2,
-                )
-                ax.plot(
-                    pos + dens, y_eval,
-                    color=color, linewidth=0.9 if is_ref else 0.6,
-                    alpha=0.8, zorder=2,
-                )
-            except Exception:
-                pass
-
-            # ── Median bar ──
-            med  = np.median(vals)
-            ax.plot(
-                [pos - 0.22, pos + 0.22], [med, med],
-                color=color, linewidth=2.0, zorder=4,
-                solid_capstyle="round",
-            )
-
-            # ── IQR box ──
-            q25, q75 = np.percentile(vals, [25, 75])
-            ax.plot(
-                [pos - 0.12, pos + 0.12], [q25, q25],
-                color=color, linewidth=0.8, alpha=0.6, zorder=3,
-            )
-            ax.plot(
-                [pos - 0.12, pos + 0.12], [q75, q75],
-                color=color, linewidth=0.8, alpha=0.6, zorder=3,
-            )
-            ax.plot(
-                [pos - 0.12, pos - 0.12], [q25, q75],
-                color=color, linewidth=0.6, alpha=0.5, zorder=3,
-            )
-            ax.plot(
-                [pos + 0.12, pos + 0.12], [q25, q75],
-                color=color, linewidth=0.6, alpha=0.5, zorder=3,
-            )
-
-            # ── Strip dots (jittered) ──
-            jitter  = rng.uniform(-0.15, 0.15, size=len(vals))
-            outlier = vals > threshold
-            ax.scatter(
-                pos + jitter[~outlier], vals[~outlier],
-                color=color, s=6, alpha=0.30,
-                edgecolors="none", zorder=3,
-            )
-            # Outliers (beyond threshold) drawn in red with marker
-            if outlier.any():
-                ax.scatter(
-                    pos + jitter[outlier], vals[outlier],
-                    color="#CC2222", s=10, alpha=0.55,
-                    edgecolors="white", linewidths=0.3,
-                    zorder=5, marker="^",
-                )
-
-        # ── Axis formatting ──
-        ax.set_xlim(-0.6, len(model_names) - 0.4)
-        ax.set_ylim(-0.3, x_cap)
-        ax.set_xticks(list(positions))
-        ax.set_xticklabels(model_names, fontsize=7, rotation=30, ha="right")
-        ax.set_ylabel(f"{metric} (mm)", fontsize=8)
-        ax.set_title(f"{cls}  —  {metric}", fontsize=8.5, fontweight="bold", pad=4)
-        ax.spines["top"].set_visible(False)
-        ax.spines["right"].set_visible(False)
-        ax.spines["bottom"].set_linewidth(0.5)
-        ax.spines["left"].set_linewidth(0.5)
-        ax.grid(axis="y", linewidth=0.3, color="#eeeeee", zorder=0)
-        ax.tick_params(labelsize=7)
-
-        # Shade threshold zone
-        ax.axhspan(threshold, x_cap, color="#FFCCCC", alpha=0.18, zorder=0)
-
-# ── Shared legend for violin figure ──
-vln_handles = [
-    mpatches.Patch(color=MODEL_COLORS[m], alpha=0.5,
-                   label=f"{m}{'  ★' if m == REFERENCE_MODEL else ''}")
-    for m in model_names
-]
-vln_handles += [
-    mlines.Line2D([0], [0], color="#CC2222", lw=0.9, linestyle="--",
-                  label="Clinical threshold"),
-    plt.scatter([], [], color="#CC2222", marker="^", s=12, alpha=0.7,
-                label="Exceeds threshold"),
-]
-
-fig2.legend(
-    handles        = vln_handles,
-    loc            = "lower center",
-    ncol           = len(model_names) + 2,
-    frameon        = False,
-    fontsize       = 8,
-    bbox_to_anchor = (0.5, -0.005),
-)
-
-plt.tight_layout(rect=[0, 0.03, 1, 0.996])
-
-vln_png = os.path.join(SAVE_DIR, "ErrorDistribution_Violin_NatureMedicine.png")
-vln_pdf = os.path.join(SAVE_DIR, "ErrorDistribution_Violin_NatureMedicine.pdf")
-plt.savefig(vln_png, dpi=600, bbox_inches="tight", facecolor="white")
-plt.savefig(vln_pdf, format="pdf", bbox_inches="tight", facecolor="white")
-plt.show()
-print(f"Violin figure saved →\n  {vln_png}\n  {vln_pdf}\n")
-
-# =============================================================================
-# 7. SAVE STATISTICS TABLE
-# =============================================================================
-
-df_stats = pd.DataFrame(all_stats)
-stats_path = os.path.join(SAVE_DIR, "ErrorDistribution_Statistics.xlsx")
-
-with pd.ExcelWriter(stats_path, engine="openpyxl") as writer:
-    df_stats.to_excel(writer, index=False, sheet_name="Stats")
-
-    ws = writer.sheets["Stats"]
-    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-
-    hdr_fill = PatternFill("solid", fgColor="1F4E79")
-    hdr_font = Font(bold=True, color="FFFFFF", size=8, name="Helvetica")
-    thin     = Border(
-        left=Side(style="thin", color="CCCCCC"),
-        right=Side(style="thin", color="CCCCCC"),
-        top=Side(style="thin", color="CCCCCC"),
-        bottom=Side(style="thin", color="CCCCCC"),
-    )
-    for cell in ws[1]:
-        cell.fill      = hdr_fill
-        cell.font      = hdr_font
-        cell.alignment = Alignment(horizontal="center")
-        cell.border    = thin
-
-    ref_fill  = PatternFill("solid", fgColor="D5E8D4")
-    alt_fill  = PatternFill("solid", fgColor="EBF3FB")
-    warn_fill = PatternFill("solid", fgColor="FFE6CC")
-
-    for row_idx, (_, row) in enumerate(df_stats.iterrows(), start=2):
-        is_ref = row["Model"] == REFERENCE_MODEL
-        fill   = ref_fill if is_ref else (alt_fill if row_idx % 2 == 0 else PatternFill())
-        for cell in ws[row_idx]:
-            cell.border    = thin
-            cell.alignment = Alignment(horizontal="center")
-            cell.font      = Font(size=8, name="Helvetica",
-                                  bold=is_ref)
-            if fill.fill_type:
-                cell.fill = fill
-
-        # Flag rows where % exceeding threshold is high
-        exceed_col = [c.column for c in ws[row_idx]
-                      if ws.cell(1, c.column).value and
-                      "Pct_exceed" in str(ws.cell(1, c.column).value)]
-        if exceed_col:
-            cell = ws.cell(row_idx, exceed_col[0])
-            try:
-                if float(str(cell.value).replace("%","")) > 20:
-                    cell.fill = warn_fill
-                    cell.font = Font(size=8, name="Helvetica", bold=True, color="CC3300")
-            except Exception:
-                pass
-
-    for col in ws.columns:
-        ws.column_dimensions[col[0].column_letter].width = 16
-
-print(f"Statistics table saved → {stats_path}")
-
-# ── Console clinical interpretation ──
-print("\n" + "=" * 72)
-print("CLINICAL SAFETY SUMMARY  (% patients exceeding threshold)")
-print("=" * 72)
-for metric in BND_METRICS:
-    thr = CLINICAL_THRESHOLDS[metric]
-    print(f"\n{metric}  (threshold = {thr} mm):")
-    print(f"  {'Model':<14} {'Class':<20} {'Median':>8} {'P95':>7} {'>thr%':>7} {'RTR':>6}")
-    print("  " + "-" * 62)
-    sub = df_stats[df_stats["Metric"] == metric].copy()
-    for _, row in sub.sort_values(["Class", "Model"]).iterrows():
-        flag = "  ⚠" if str(row.get(f"Pct_exceed_{thr}mm", 0)) not in ["—", "0.0"] and \
-                        float(str(row.get(f"Pct_exceed_{thr}mm", 0))) > 20 else ""
-        print(
-            f"  {row['Model']:<14} {row['Class']:<20} "
-            f"{row['Median_mm']:>8.2f} {row['P95_mm']:>7.2f} "
-            f"{str(row.get(f'Pct_exceed_{thr}mm','—')):>7} "
-            f"{str(row.get('Right_tail_ratio','—')):>6}{flag}"
-        )
-
-print(f"\nAll outputs in: {SAVE_DIR}")
+    
 
 
 
@@ -10140,7 +10485,7 @@ excel_files_bnd = [
 
 
 
-SEG_METRICS      = ["Dice", "IoU"]
+SEG_METRICS      = ["Dice", "IoU","Recall","Specificity"]
 BND_METRICS      = ["HD95", "ASD"]
 ALL_METRICS      = SEG_METRICS + BND_METRICS
 LOWER_IS_BETTER  = {"HD95", "ASD", "HD", "RVD", "RAVD"}
@@ -10164,7 +10509,7 @@ MODEL_COLORS = {
     "UNETR":     "#AA4499",
 }
 
-SAVE_DIR = r'I:/Radiotherapy/Cervix/Paper/Result/Quantitative/ReliabilityScatter'
+SAVE_DIR = r'I:/Radiotherapy/Cervix/Paper/Result/Quantitative/Final/Mixed/ReliabilityScatter'
 os.makedirs(SAVE_DIR, exist_ok=True)
 
 # =============================================================================
@@ -10751,22 +11096,7 @@ for metric in ALL_METRICS:
             f"{row['Ref_win_pct']:>6.1f}% {row['OLS_slope']:>7.3f}"
         )
 
-print(f"\nAll outputs in: {SAVE_DIR}")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+print(f"\nAll outputs in: {SAVE_DIR}")    
 
 
 
@@ -10887,7 +11217,7 @@ excel_files_bnd = [
 
 
 
-SEG_METRICS     = ["Dice", "IoU"]
+SEG_METRICS     = ["Dice", "IoU","Recall","Specificity"]
 BND_METRICS     = ["HD95", "ASD"]
 ALL_METRICS     = SEG_METRICS + BND_METRICS
 LOWER_IS_BETTER = {"HD95", "ASD", "HD", "RVD", "RAVD"}
@@ -10908,7 +11238,7 @@ MODEL_COLORS = {
     "UNETR":     "#AA4499",
 }
 
-SAVE_DIR = r'I:/Radiotherapy/Cervix/Paper/Result/Quantitative/FailureModeAnalysis'
+SAVE_DIR = r'I:/Radiotherapy/Cervix/Paper/Result/Quantitative/Final/Mixed/FailureModeAnalysis'
 os.makedirs(SAVE_DIR, exist_ok=True)
 
 # =============================================================================
@@ -11668,6 +11998,9 @@ print(f"\nAll outputs in: {SAVE_DIR}")
 
 
 
+
+
+
 # =============================================================================
 # METRIC REDUNDANCY CORRELATION HEATMAP
 # Nature Medicine Style — Pearson + Spearman across all metrics × models
@@ -11743,7 +12076,7 @@ excel_files_bnd = [
     ("UNETR",     r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/nnUNet_256/boundary_metrics_nnUNet_100_epochs_generated.xlsx'),
 ]
 
-SEG_METRICS = ["Dice", "IoU"]
+SEG_METRICS = ["Dice", "IoU","Recall","Specificity"]
 BND_METRICS = ["HD95", "ASD"]
 ALL_METRICS = SEG_METRICS + BND_METRICS   # extend if NSD / HD available
 
@@ -11764,7 +12097,7 @@ METRIC_LABELS = {
     "NSD":   "NSD",
 }
 
-SAVE_DIR = r'I:/Radiotherapy/Cervix/Paper/Result/Quantitative/MetricCorrelation'
+SAVE_DIR = r'I:/Radiotherapy/Cervix/Paper/Result/Quantitative/Final/Mixed/MetricCorrelation'
 os.makedirs(SAVE_DIR, exist_ok=True)
 
 # Colourmap: red (+1) — white (0) — blue (−1)
@@ -12544,6 +12877,7 @@ print(f"\nAll outputs in: {SAVE_DIR}")
 
 
 
+
 # =============================================================================
 # CASE-LEVEL RANKING CONSISTENCY
 # Nature Medicine Style — Per-Patient Model Rank Analysis
@@ -12626,7 +12960,7 @@ excel_files_bnd = [
     ("UNETR",     r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/nnUNet_256/boundary_metrics_nnUNet_100_epochs_generated.xlsx'),
 ]
 
-SEG_METRICS     = ["Dice", "IoU"]
+SEG_METRICS     = ["Dice", "IoU","Recall", "Specificity"]
 BND_METRICS     = ["HD95", "ASD"]
 ALL_METRICS     = SEG_METRICS + BND_METRICS
 LOWER_IS_BETTER = {"HD95", "ASD", "HD", "NSD", "RVD"}
@@ -12652,7 +12986,7 @@ MODEL_COLORS = {
 # How many patients to show in heatmap before truncating
 MAX_PATIENTS_HEATMAP = 60
 
-SAVE_DIR = r'I:/Radiotherapy/Cervix/Paper/Result/Quantitative/RankingConsistency'
+SAVE_DIR = r'I:/Radiotherapy/Cervix/Paper/Result/Quantitative/Final/Mixed/RankingConsistency'
 os.makedirs(SAVE_DIR, exist_ok=True)
 
 # =============================================================================
@@ -13529,42 +13863,20 @@ print(f"\nAll outputs in: {SAVE_DIR}")
 
 
 # =============================================================================
-# PAIRED VIOLIN + BOX PLOTS WITH EXPLICIT PATIENT PAIRING
-# Nature Medicine Style — All Metrics, All Classes
+# CASE-LEVEL RANKING CONSISTENCY
+# Nature Medicine Style — Per-Patient Model Rank Analysis
 # =============================================================================
 #
-# Upgrade over standard Wilcoxon:
-#   • Uses PAIRED Wilcoxon signed-rank test (same patient, different model)
-#   • Shows pairing explicitly via connecting lines between matched dots
-#   • Reports concordant / discordant pair counts (N+, N−, ties)
-#   • Effect size: paired Hedges' g with 95% bootstrap CI
+# For each patient × class, ranks all models by each metric.
+# Rank 1 = best model for that patient.
 #
-# LAYOUT — one figure per class (7 figures total):
-#   Columns : metrics (Dice, IoU, HD95, ASD)
-#   Each panel:
-#     ① Violin (full distribution shape)
-#     ② Box (IQR + median)
-#     ③ Strip dots — one per patient, jittered
-#     ④ Grey connecting lines between matched patient dots
-#        (reference model dot → baseline model dot)
-#        Lines coloured RED if reference model wins that patient,
-#        BLUE if baseline wins — immediately shows direction of individual pairs
-#     ⑤ Significance bracket with paired Wilcoxon p-value + stars
-#     ⑥ Concordant / discordant count annotation
-#        "N+=18 N−=7 ties=0" below the bracket
+# OUTPUTS (produced for EVERY metric in ALL_METRICS):
 #
-# INSET TABLE per panel (top-right):
-#   Model | Median | IQR | N+ | N− | g | CI
-#
-# Statistical method:
-#   Paired Wilcoxon signed-rank test (scipy.stats.wilcoxon, zero_method="pratt")
-#   Paired Hedges' g = mean(diff) / SD(diff) × correction_factor
-#   95% CI via BCa bootstrap (n=1000 resamples)
-#
-# NOTE on connecting lines:
-#   Only patients with data for BOTH models in a pair are connected.
-#   If a class has >MAX_LINES patients, a random subsample is drawn to
-#   keep the figure readable (default MAX_LINES=60).
+#   Figure 1 — Bump chart (parallel coordinates of ranks)
+#   Figure 2 — Rank heatmap (patients × models, per class)
+#   Figure 3 — Rank frequency stacked bar chart
+#   Figure 4 — Kendall's W concordance heatmap (class × metric)  ← one figure total
+#   Excel     — per-patient rank table + summary stats
 #
 # Dependencies: pandas, numpy, matplotlib, scipy, openpyxl
 # =============================================================================
@@ -13574,9 +13886,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import matplotlib.lines as mlines
-import matplotlib.gridspec as gridspec
-from scipy.stats import wilcoxon, gaussian_kde
+from matplotlib.colors import LinearSegmentedColormap
 from scipy import stats
+from scipy.stats import friedmanchisquare
 import os
 import warnings
 
@@ -13604,20 +13916,15 @@ excel_files_bnd = [
     ("UNETR",     r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/nnUNet_256/boundary_metrics_nnUNet_100_epochs_generated.xlsx'),
 ]
 
-SEG_METRICS     = ["Dice", "IoU"]
+SEG_METRICS     = ["Dice", "IoU", "Recall", "Specificity"]
 BND_METRICS     = ["HD95", "ASD"]
-ALL_METRICS     = SEG_METRICS + BND_METRICS
-LOWER_IS_BETTER = {"HD95", "ASD", "HD", "RVD", "RAVD"}
+ALL_METRICS     = SEG_METRICS + BND_METRICS          # all 6 metrics get figures
+LOWER_IS_BETTER = {"HD95", "ASD", "HD", "NSD", "RVD"}
 
 class_list = [
     "BODY", "URINARY BLADDER", "SMALL BOWEL",
     "RECTUM", "FEMORAL HEAD", "GTV", "CTV",
 ]
-
-# Max connecting lines per panel (subsample if more patients)
-MAX_LINES  = 60
-# Bootstrap resamples for Hedges' g CI
-N_BOOT     = 1000
 
 MODEL_COLORS = {
     "BAT-RM":    "#0077BB",
@@ -13627,12 +13934,9 @@ MODEL_COLORS = {
     "UNETR":     "#AA4499",
 }
 
-# Line colours for connecting pairs
-WIN_COLOR  = "#CC3311"   # reference model wins this patient
-LOSE_COLOR = "#4477AA"   # baseline wins this patient
-TIE_COLOR  = "#AAAAAA"
+MAX_PATIENTS_HEATMAP = 60
 
-SAVE_DIR = r'I:/Radiotherapy/Cervix/Paper/Result/Quantitative/PairedViolin'
+SAVE_DIR = r'I:/Radiotherapy/Cervix/Paper/Result/Quantitative/Final/Mixed/RankingConsistency'
 os.makedirs(SAVE_DIR, exist_ok=True)
 
 # =============================================================================
@@ -13730,1429 +14034,574 @@ df_all = pd.merge(
 )
 
 model_names = [m for m, _ in excel_files_seg]
-baselines   = [m for m in model_names if m != REFERENCE_MODEL]
+n_models    = len(model_names)
 classes     = sorted(df_all["Class_Name"].dropna().unique())
 
 print(f"Models   : {model_names}")
 print(f"Classes  : {classes}")
-print(f"Metrics  : {ALL_METRICS}")
 print(f"Patients : {df_all['Filename'].nunique()}\n")
 
 # =============================================================================
-# 4. STATISTICAL HELPERS
+# 4. RANK COMPUTATION  (single definition, lower_b keyword throughout)
 # =============================================================================
 
-def paired_hedges_g(diff):
-    """Paired Hedges' g from an array of differences (ref − baseline)."""
-    diff = np.array(diff)
-    n    = len(diff)
-    if n < 2:
-        return np.nan
-    d = diff.mean() / (diff.std(ddof=1) + 1e-12)
-    j = 1 - 3 / (4 * (n - 1) - 1)   # Hedges' correction
-    return d * j
-
-
-def bootstrap_g_ci(diff, n_boot=1000, seed=42):
-    """BCa bootstrap 95% CI for paired Hedges' g."""
-    diff = np.array(diff)
-    n    = len(diff)
-    if n < 3:
-        return np.nan, np.nan
-    rng  = np.random.default_rng(seed)
-    boot = np.array([
-        paired_hedges_g(diff[rng.integers(0, n, n)])
-        for _ in range(n_boot)
-    ])
-    return np.nanpercentile(boot, 2.5), np.nanpercentile(boot, 97.5)
-
-
-def paired_wilcoxon(x_ref, x_bsl):
+def compute_ranks(df, metric, class_list, model_names, lower_b=False):
     """
-    Paired Wilcoxon signed-rank test.
-    Returns (statistic, p_value).
+    For every patient x class with complete data across all models,
+    assign rank 1 (best) to N (worst).
+
+    lower_b=True  -> ascending rank  (rank 1 = lowest,  good for HD95/ASD)
+    lower_b=False -> descending rank (rank 1 = highest,  good for Dice/IoU)
     """
-    diff = np.array(x_ref) - np.array(x_bsl)
-    if len(diff) < 3 or np.all(diff == 0):
-        return np.nan, np.nan
-    try:
-        stat, p = wilcoxon(x_ref, x_bsl, zero_method="pratt")
-        return stat, p
-    except Exception:
-        return np.nan, np.nan
+    records = []
+    for cls in class_list:
+        sub = df[df["Class_Name"] == cls][["Filename", "Model", metric]].copy()
+        sub[metric] = pd.to_numeric(sub[metric], errors="coerce")
+        sub = sub.dropna(subset=[metric])
+        sub = sub[np.isfinite(sub[metric])]
 
-
-def concordant_discordant(x_ref, x_bsl, lower_is_better):
-    """
-    N+ : pairs where reference model is better
-    N− : pairs where baseline is better
-    T  : ties
-    """
-    diff = np.array(x_ref) - np.array(x_bsl)
-    tol  = 1e-9
-    if lower_is_better:
-        n_plus  = (diff < -tol).sum()   # ref smaller = ref wins
-        n_minus = (diff >  tol).sum()
-    else:
-        n_plus  = (diff >  tol).sum()   # ref larger = ref wins
-        n_minus = (diff < -tol).sum()
-    ties = (np.abs(diff) <= tol).sum()
-    return int(n_plus), int(n_minus), int(ties)
-
-
-def p_stars(p):
-    if np.isnan(p):  return ""
-    if p < 0.0001:   return "****"
-    if p < 0.001:    return "***"
-    if p < 0.01:     return "**"
-    if p < 0.05:     return "*"
-    return "ns"
-
-
-# =============================================================================
-# 5. SINGLE PANEL DRAWING FUNCTION
-# =============================================================================
-
-def draw_paired_panel(ax, ref_vals, bsl_vals, filenames,
-                      ref_name, bsl_name, metric, lower_is_better,
-                      rng, max_lines=MAX_LINES):
-    """
-    Draw one paired violin+box+strip+connecting-lines panel.
-
-    Parameters
-    ----------
-    ax              : matplotlib Axes
-    ref_vals, bsl_vals : 1D arrays, same length, same patient order
-    filenames       : array of patient IDs (same order)
-    ref_name        : str, reference model name
-    bsl_name        : str, baseline model name
-    metric          : str, metric name
-    lower_is_better : bool
-    rng             : numpy Generator
-    max_lines       : int, max connecting lines to draw
-    """
-    x_ref, x_bsl = 0, 1    # x positions for the two models
-    colors = [MODEL_COLORS.get(ref_name, "#0077BB"),
-              MODEL_COLORS.get(bsl_name, "#888888")]
-
-    ref_arr = np.array(ref_vals, float)
-    bsl_arr = np.array(bsl_vals, float)
-    n       = len(ref_arr)
-
-    # ── Violin ──
-    for xi, arr, color in [(x_ref, ref_arr, colors[0]),
-                           (x_bsl, bsl_arr, colors[1])]:
-        if len(arr) < 4:
+        wide = sub.pivot_table(
+            index="Filename", columns="Model", values=metric, aggfunc="mean"
+        )
+        wide = wide.dropna(
+            subset=[m for m in model_names if m in wide.columns], how="any"
+        )
+        if len(wide) == 0:
             continue
-        try:
-            kde  = gaussian_kde(arr, bw_method="scott")
-            y_ev = np.linspace(arr.min(), arr.max(), 300)
-            dens = kde(y_ev)
-            dens = dens / dens.max() * 0.36
-            ax.fill_betweenx(y_ev, xi - dens, xi + dens,
-                             color=color, alpha=0.18, zorder=1)
-            ax.plot(xi - dens, y_ev, color=color, lw=0.7, alpha=0.6, zorder=2)
-            ax.plot(xi + dens, y_ev, color=color, lw=0.7, alpha=0.6, zorder=2)
-        except Exception:
-            pass
 
-    # ── Box (IQR) ──
-    for xi, arr, color in [(x_ref, ref_arr, colors[0]),
-                           (x_bsl, bsl_arr, colors[1])]:
-        q25, q50, q75 = np.percentile(arr, [25, 50, 75])
-        # Median bar
-        ax.plot([xi - 0.20, xi + 0.20], [q50, q50],
-                color=color, lw=2.4, solid_capstyle="round", zorder=6)
-        # IQR box
-        ax.add_patch(plt.Rectangle(
-            (xi - 0.15, q25), 0.30, q75 - q25,
-            facecolor=color, alpha=0.22,
-            edgecolor=color, lw=0.9, zorder=4,
-        ))
-        # Whiskers to 5th/95th pct
-        p05, p95 = np.percentile(arr, [5, 95])
-        ax.plot([xi, xi], [p05, q25], color=color, lw=0.8, alpha=0.6, zorder=3)
-        ax.plot([xi, xi], [q75, p95], color=color, lw=0.8, alpha=0.6, zorder=3)
-        ax.plot([xi - 0.08, xi + 0.08], [p05, p05],
-                color=color, lw=0.8, alpha=0.6, zorder=3)
-        ax.plot([xi - 0.08, xi + 0.08], [p95, p95],
-                color=color, lw=0.8, alpha=0.6, zorder=3)
+        rank_wide = wide.rank(axis=1, ascending=lower_b, method="average")
 
-    # ── Connecting lines between matched patient dots ──
-    # Subsample if too many patients
-    indices = np.arange(n)
-    if n > max_lines:
-        indices = rng.choice(n, max_lines, replace=False)
-        sampled_note = f"(showing {max_lines}/{n} pairs)"
-    else:
-        sampled_note = f"(n={n} pairs)"
+        for pid in wide.index:
+            row = {"Filename": pid, "Class_Name": cls}
+            for m in model_names:
+                if m in wide.columns:
+                    row[f"{m}_val"]  = wide.loc[pid, m]
+                    row[f"{m}_rank"] = rank_wide.loc[pid, m]
+            records.append(row)
 
-    tol = 1e-9
-    for idx in indices:
-        rv, bv = ref_arr[idx], bsl_arr[idx]
-        if lower_is_better:
-            ref_wins = rv < bv - tol
-            bsl_wins = bv < rv - tol
-        else:
-            ref_wins = rv > bv + tol
-            bsl_wins = bv > rv + tol
+    return pd.DataFrame(records)
 
-        if ref_wins:
-            lc = WIN_COLOR
-        elif bsl_wins:
-            lc = LOSE_COLOR
-        else:
-            lc = TIE_COLOR
 
-        # Jitter x positions slightly so lines don't stack
-        jx_ref = x_ref + rng.uniform(-0.08, 0.08)
-        jx_bsl = x_bsl + rng.uniform(-0.08, 0.08)
-        ax.plot([jx_ref, jx_bsl], [rv, bv],
-                color=lc, lw=0.45, alpha=0.35, zorder=3)
+# =============================================================================
+# 5. PRE-COMPUTE RANKS FOR ALL METRICS  (cached — used everywhere below)
+# =============================================================================
 
-    # ── Strip dots ──
-    for xi, arr, color in [(x_ref, ref_arr, colors[0]),
-                           (x_bsl, bsl_arr, colors[1])]:
-        jitter = rng.uniform(-0.10, 0.10, size=len(arr))
-        ax.scatter(xi + jitter, arr,
-                   color=color, s=9, alpha=0.50,
-                   edgecolors="white", linewidths=0.2, zorder=5)
-
-    # ── Statistics ──
-    diff          = ref_arr - bsl_arr
-    _, p_val      = paired_wilcoxon(ref_arr, bsl_arr)
-    g             = paired_hedges_g(diff if not lower_is_better else -diff)
-    g_lo, g_hi    = bootstrap_g_ci(diff if not lower_is_better else -diff, N_BOOT)
-    n_plus, n_minus, ties = concordant_discordant(ref_arr, bsl_arr, lower_is_better)
-    stars         = p_stars(p_val)
-
-    # ── Significance bracket ──
-    y_data_max = max(ref_arr.max(), bsl_arr.max())
-    y_data_min = min(ref_arr.min(), bsl_arr.min())
-    y_range    = y_data_max - y_data_min if y_data_max > y_data_min else 1.0
-    y_bracket  = y_data_max + y_range * 0.08
-
-    ax.plot([x_ref, x_ref, x_bsl, x_bsl],
-            [y_bracket, y_bracket + y_range * 0.02,
-             y_bracket + y_range * 0.02, y_bracket],
-            color="#333333", lw=0.9, zorder=8)
-
-    sig_color = "#CC2222" if (stars not in ("ns", "")) else "#666666"
-    ax.text((x_ref + x_bsl) / 2, y_bracket + y_range * 0.04,
-            stars if stars else "ns",
-            ha="center", va="bottom",
-            fontsize=8, color=sig_color, fontweight="bold", zorder=9)
-
-    # p-value numeric below stars
-    p_txt = f"p={p_val:.4f}" if not np.isnan(p_val) else "p=n/a"
-    ax.text((x_ref + x_bsl) / 2, y_bracket + y_range * 0.09,
-            p_txt,
-            ha="center", va="bottom",
-            fontsize=5.5, color="#555555", zorder=9)
-
-    # Concordant / discordant annotation
-    cd_txt = (f"N+={n_plus}  N−={n_minus}"
-              + (f"  ties={ties}" if ties > 0 else ""))
-    ax.text((x_ref + x_bsl) / 2, y_bracket + y_range * 0.155,
-            cd_txt,
-            ha="center", va="bottom",
-            fontsize=5.5, color="#333333", zorder=9)
-
-    # ── Inset stats box ──
-    ref_med = np.median(ref_arr)
-    bsl_med = np.median(bsl_arr)
-    ref_iqr = np.subtract(*np.percentile(ref_arr, [75, 25]))
-    bsl_iqr = np.subtract(*np.percentile(bsl_arr, [75, 25]))
-    g_str   = (f"{g:+.2f} [{g_lo:+.2f},{g_hi:+.2f}]"
-               if not np.isnan(g) else "n/a")
-
-    stats_txt = (
-        f"{'Model':<9} {'Med':>5}  {'IQR':>5}\n"
-        f"{'─'*24}\n"
-        f"{'★'+ref_name:<9} {ref_med:>5.3f}  {ref_iqr:>5.3f}\n"
-        f"{bsl_name:<9} {bsl_med:>5.3f}  {bsl_iqr:>5.3f}\n"
-        f"{'─'*24}\n"
-        f"g = {g_str}\n"
-        f"{sampled_note}"
+print("Computing ranks for all metrics …")
+rank_cache = {}
+for metric in ALL_METRICS:
+    lb = metric in LOWER_IS_BETTER
+    rank_cache[metric] = compute_ranks(
+        df_all, metric, classes, model_names, lower_b=lb
     )
-    ax.text(1.04, 0.99, stats_txt,
-            transform=ax.transAxes,
-            va="top", ha="left",
-            fontsize=5.2, fontfamily="monospace",
-            color="#222222",
-            bbox=dict(boxstyle="round,pad=0.3", facecolor="white",
-                      edgecolor="#cccccc", lw=0.5, alpha=0.90),
-            zorder=10, clip_on=False)
+    n_pairs = len(rank_cache[metric])
+    print(f"  {metric:15s}  lower_b={str(lb):<5}  complete pairs: {n_pairs}")
 
-    # ── Axis formatting ──
-    ax.set_xticks([x_ref, x_bsl])
-    ax.set_xticklabels(
-        [f"{'★ ' if ref_name == REFERENCE_MODEL else ''}{ref_name}",
-         bsl_name],
-        fontsize=7.5,
+print()
+
+# =============================================================================
+# 6. STATISTICAL HELPERS
+# =============================================================================
+
+def kendalls_w(rank_matrix):
+    n, k  = rank_matrix.shape
+    if n < 2 or k < 2:
+        return np.nan, np.nan
+    Ri    = rank_matrix.sum(axis=1)
+    R_bar = Ri.mean()
+    S     = ((Ri - R_bar) ** 2).sum()
+    W     = 12 * S / (k ** 2 * (n ** 3 - n))
+    chi2  = k * (n - 1) * W
+    p     = stats.chi2.sf(chi2, df=n - 1)
+    return W, p
+
+
+# =============================================================================
+# 7. FIGURE 1 — BUMP CHART  (one per metric)
+# =============================================================================
+
+def plot_bump_chart(metric, df_r):
+    lower_b   = metric in LOWER_IS_BETTER
+    direction = "lower = better" if lower_b else "higher = better"
+    n_cls     = len(classes)
+    x_pos     = np.arange(n_cls)
+    FIG_W     = max(10, n_cls * 1.6 + 2.0)
+
+    fig, ax = plt.subplots(figsize=(FIG_W, 5.5))
+
+    for xi in range(n_cls):
+        if xi % 2 == 0:
+            ax.axvspan(xi - 0.5, xi + 0.5, color="#F5F5F5", zorder=0)
+    for rank in range(1, n_models + 1):
+        ax.axhline(rank, color="#dddddd", linewidth=0.5, zorder=1)
+
+    for model in model_names:
+        rc     = f"{model}_rank"
+        color  = MODEL_COLORS.get(model, "#888888")
+        is_ref = model == REFERENCE_MODEL
+
+        mean_ranks, sd_ranks, r1_freqs = [], [], []
+        for cls in classes:
+            sub = df_r[df_r["Class_Name"] == cls]
+            if rc not in sub.columns or sub[rc].dropna().empty:
+                mean_ranks.append(np.nan); sd_ranks.append(0); r1_freqs.append(0)
+            else:
+                vals = sub[rc].dropna().values
+                mean_ranks.append(vals.mean())
+                sd_ranks.append(vals.std(ddof=1) if len(vals) > 1 else 0)
+                r1_freqs.append(100 * (vals == 1).mean())
+
+        mean_ranks = np.array(mean_ranks, float)
+        sd_ranks   = np.array(sd_ranks,   float)
+        r1_freqs   = np.array(r1_freqs,   float)
+        valid      = np.isfinite(mean_ranks)
+        if not valid.any():
+            continue
+
+        xi_v = x_pos[valid]; mr_v = mean_ranks[valid]; sd_v = sd_ranks[valid]
+
+        ax.fill_between(xi_v,
+                        np.clip(mr_v - sd_v, 1, n_models),
+                        np.clip(mr_v + sd_v, 1, n_models),
+                        color=color, alpha=0.10, zorder=2)
+        ax.plot(xi_v, mr_v,
+                color=color, linewidth=2.8 if is_ref else 1.6,
+                alpha=0.92, zorder=4,
+                solid_capstyle="round", solid_joinstyle="round",
+                label=model)
+
+        for xi_i, mr_i, r1_i in zip(xi_v, mr_v, r1_freqs[valid]):
+            ax.scatter(xi_i, mr_i, s=max(20, r1_i * 3.5),
+                       color=color, edgecolors="white", linewidths=0.6, zorder=5)
+            if is_ref and r1_i > 0:
+                ax.text(xi_i, mr_i - 0.18, f"{r1_i:.0f}%",
+                        ha="center", va="top",
+                        fontsize=6, color=color, fontweight="bold", zorder=6)
+
+    ax.set_xticks(x_pos)
+    ax.set_xticklabels(classes, fontsize=8.5, rotation=25, ha="right")
+    ax.set_yticks(range(1, n_models + 1))
+    ax.set_yticklabels([f"Rank {r}" for r in range(1, n_models + 1)], fontsize=8)
+    ax.invert_yaxis()
+    ax.set_xlim(-0.5, n_cls - 0.5)
+    ax.set_ylim(n_models + 0.6, 0.4)
+    ax.set_xlabel("Anatomical class", fontsize=9, labelpad=6)
+    ax.set_ylabel(f"Mean rank  ({metric}, rank 1 = best)", fontsize=9)
+    ax.set_title(
+        f"Bump chart — ranking consistency  |  {metric}  ({direction})\n"
+        "Line = mean rank  |  Ribbon = \u00b11 SD  |  "
+        "Dot size \u221d rank-1 freq  |  % labels = reference model",
+        fontsize=9, fontweight="bold", pad=6,
     )
-    ax.set_xlim(-0.55, 1.55)
-    ax.set_ylim(y_data_min - y_range * 0.08,
-                y_bracket + y_range * 0.28)
-    ax.set_ylabel(metric, fontsize=8)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
-    ax.spines["left"].set_linewidth(0.5)
-    ax.spines["bottom"].set_linewidth(0.5)
-    ax.tick_params(axis="y", labelsize=7)
-    ax.tick_params(axis="x", length=0)
-    ax.grid(axis="y", linewidth=0.3, color="#eeeeee", zorder=0)
 
-    return {
-        "p_val": p_val, "stars": stars,
-        "g": g, "g_lo": g_lo, "g_hi": g_hi,
-        "n_pairs": n, "n_plus": n_plus, "n_minus": n_minus, "ties": ties,
-        "ref_median": ref_med, "bsl_median": bsl_med,
-        "ref_iqr": ref_iqr, "bsl_iqr": bsl_iqr,
-    }
-
-
-# =============================================================================
-# 6. MAIN LOOP — one figure per class
-# Each figure: rows = baselines, columns = metrics
-# =============================================================================
-
-rng = np.random.default_rng(42)
-summary_records = []
-
-ref_df = df_all[df_all["Model"] == REFERENCE_MODEL]
-
-for cls in classes:
-    n_baselines = len(baselines)
-    n_metrics   = len(ALL_METRICS)
-
-    # Each panel: ~2.8 in wide (+ 1.2 for inset box), ~3.2 in tall
-    PANEL_W = 2.8
-    PANEL_H = 3.6
-    FIG_W   = n_metrics * (PANEL_W + 1.5) + 0.6
-    FIG_H   = n_baselines * PANEL_H + 1.8
-
-    fig, axes = plt.subplots(
-        n_baselines, n_metrics,
-        figsize=(FIG_W, FIG_H),
-        squeeze=False,
-    )
-
-    # Direction note per metric (top of column)
-    direction_note = {
-        m: ("↑ higher = better" if m not in LOWER_IS_BETTER else "↓ lower = better")
-        for m in ALL_METRICS
-    }
-
-    # Column headers
-    for ci, metric in enumerate(ALL_METRICS):
-        axes[0][ci].set_title(
-            f"{metric}\n{direction_note[metric]}",
-            fontsize=9, fontweight="bold", pad=6,
-        )
-
-    for ri, baseline in enumerate(baselines):
-        bsl_df  = df_all[df_all["Model"] == baseline]
-        bsl_color = MODEL_COLORS.get(baseline, "#888888")
-
-        # Row label (baseline model name, left side)
-        axes[ri][0].set_ylabel(
-            f"{baseline}\nvs {REFERENCE_MODEL}\n\n{ALL_METRICS[0]}",
-            fontsize=7.5,
-        )
-
-        for ci, metric in enumerate(ALL_METRICS):
-            ax = axes[ri][ci]
-            lower_b = metric in LOWER_IS_BETTER
-
-            # Paired merge on Filename + Class_Name
-            ref_sub = ref_df[ref_df["Class_Name"] == cls][
-                ["Filename", metric]
-            ].dropna()
-            bsl_sub = bsl_df[bsl_df["Class_Name"] == cls][
-                ["Filename", metric]
-            ].dropna()
-
-            merged = pd.merge(
-                ref_sub, bsl_sub,
-                on="Filename", suffixes=("_ref", "_bsl")
-            ).dropna()
-            merged = merged[
-                np.isfinite(merged[f"{metric}_ref"]) &
-                np.isfinite(merged[f"{metric}_bsl"])
-            ]
-
-            if len(merged) < 3:
-                ax.text(0.5, 0.5, "Insufficient\npaired data",
-                        ha="center", va="center",
-                        fontsize=8, color="#aaaaaa",
-                        transform=ax.transAxes)
-                ax.axis("off")
-                continue
-
-            out = draw_paired_panel(
-                ax,
-                ref_vals  = merged[f"{metric}_ref"].values,
-                bsl_vals  = merged[f"{metric}_bsl"].values,
-                filenames = merged["Filename"].values,
-                ref_name  = REFERENCE_MODEL,
-                bsl_name  = baseline,
-                metric    = metric,
-                lower_is_better = lower_b,
-                rng       = rng,
-            )
-
-            if ri > 0:
-                ax.set_title("")   # only show metric title on first row
-
-            summary_records.append({
-                "Class":       cls,
-                "Metric":      metric,
-                "Baseline":    baseline,
-                "N_pairs":     out["n_pairs"],
-                "Ref_median":  round(out["ref_median"], 4),
-                "Bsl_median":  round(out["bsl_median"], 4),
-                "Ref_IQR":     round(out["ref_iqr"],    4),
-                "Bsl_IQR":     round(out["bsl_iqr"],    4),
-                "N_plus (ref wins)":   out["n_plus"],
-                "N_minus (bsl wins)":  out["n_minus"],
-                "Ties":        out["ties"],
-                "Win_pct_ref": round(100 * out["n_plus"] / max(out["n_pairs"], 1), 1),
-                "Paired_Wilcoxon_p": round(out["p_val"], 5)
-                                      if not np.isnan(out["p_val"]) else np.nan,
-                "Stars":       out["stars"],
-                "Hedges_g":    round(out["g"],    3) if not np.isnan(out["g"])    else np.nan,
-                "g_CI_lo":     round(out["g_lo"], 3) if not np.isnan(out["g_lo"]) else np.nan,
-                "g_CI_hi":     round(out["g_hi"], 3) if not np.isnan(out["g_hi"]) else np.nan,
-            })
-
-    # ── Legend ──
     legend_handles = [
-        mlines.Line2D([0], [0], color=MODEL_COLORS.get(REFERENCE_MODEL, "#0077BB"),
-                      lw=2.0, label=f"★ {REFERENCE_MODEL} (reference)"),
+        mlines.Line2D([0], [0],
+                      color=MODEL_COLORS[m],
+                      linewidth=2.8 if m == REFERENCE_MODEL else 1.6,
+                      label=("{} {}".format(m, "★" if m == REFERENCE_MODEL else "")).strip())
+        for m in model_names
     ]
-    for bsl in baselines:
-        legend_handles.append(
-            mlines.Line2D([0], [0], color=MODEL_COLORS.get(bsl, "#888888"),
-                          lw=2.0, label=bsl)
-        )
-    legend_handles += [
-        mlines.Line2D([0], [0], color=WIN_COLOR,  lw=1.0, alpha=0.7,
-                      label=f"{REFERENCE_MODEL} wins (red line)"),
-        mlines.Line2D([0], [0], color=LOSE_COLOR, lw=1.0, alpha=0.7,
-                      label="Baseline wins (blue line)"),
-        mlines.Line2D([0], [0], color=TIE_COLOR,  lw=1.0, alpha=0.7,
-                      label="Tie (grey line)"),
-    ]
+    ax.legend(handles=legend_handles, loc="upper right", frameon=False, fontsize=8)
+    plt.tight_layout()
 
-    fig.legend(
-        handles        = legend_handles,
-        loc            = "lower center",
-        ncol           = len(legend_handles),
-        frameon        = False,
-        fontsize       = 7.5,
-        bbox_to_anchor = (0.5, -0.01),
-    )
+    png = os.path.join(SAVE_DIR, f"RankBumpChart_{metric}.png")
+    pdf = os.path.join(SAVE_DIR, f"RankBumpChart_{metric}.pdf")
+    plt.savefig(png, dpi=600, bbox_inches="tight", facecolor="white")
+    plt.savefig(pdf, format="pdf", bbox_inches="tight", facecolor="white")
+    plt.show(); plt.close()
+    print(f"  Saved → {png}")
 
-    fig.suptitle(
-        f"Paired violin + box plots with patient-level connecting lines — {cls}\n"
-        f"Red line = {REFERENCE_MODEL} wins that patient  |  "
-        f"Blue line = baseline wins  |  "
-        f"Bracket: paired Wilcoxon p-value  |  "
-        f"N+ / N− = concordant / discordant pairs  |  "
-        f"g = paired Hedges' g [95% bootstrap CI]",
-        fontsize=9, fontweight="bold", y=1.002,
-    )
-
-    plt.tight_layout(w_pad=3.5, h_pad=1.5,
-                     rect=[0, 0.04, 1, 0.998])
-
-    safe_cls = cls.replace(" ", "_")
-    png_path = os.path.join(SAVE_DIR, f"PairedViolin_{safe_cls}.png")
-    pdf_path = os.path.join(SAVE_DIR, f"PairedViolin_{safe_cls}.pdf")
-    plt.savefig(png_path, dpi=600, bbox_inches="tight", facecolor="white")
-    plt.savefig(pdf_path, format="pdf", bbox_inches="tight", facecolor="white")
-    plt.show()
-    print(f"Saved → {png_path}")
 
 # =============================================================================
-# 7. COMBINED SUMMARY FIGURE — median difference heatmap across all classes
-# Rows = class × baseline, columns = metrics
-# Colour = direction and magnitude of median difference
+# 8. FIGURE 2 — RANK HEATMAP  (one per metric)
 # =============================================================================
 
-df_sum = pd.DataFrame(summary_records)
-
-# Compute signed median difference (reference − baseline, sign-flipped for
-# distance metrics so positive always means reference is better)
-df_sum["Med_diff_signed"] = df_sum.apply(
-    lambda r: (r["Ref_median"] - r["Bsl_median"])
-              * (-1 if r["Metric"] in LOWER_IS_BETTER else 1),
-    axis=1,
+rank_cmap = LinearSegmentedColormap.from_list(
+    "ranks", ["#08306B", "#2171B5", "#6BAED6", "#C6DBEF", "#F7FBFF"], N=256
 )
 
-row_labels = [f"{cls}\nvs {bsl}"
-              for cls in classes for bsl in baselines]
-n_rows_h   = len(classes) * len(baselines)
+def plot_rank_heatmap(metric, df_r):
+    n_cols_h      = min(4, len(classes))
+    n_rows_h      = int(np.ceil(len(classes) / n_cols_h))
+    rc_cols       = [f"{m}_rank" for m in model_names if f"{m}_rank" in df_r.columns]
+    active_models = [m for m in model_names if f"{m}_rank" in df_r.columns]
 
-diff_mat  = np.full((n_rows_h, len(ALL_METRICS)), np.nan)
-star_mat  = [["" for _ in ALL_METRICS] for _ in range(n_rows_h)]
-g_mat     = np.full((n_rows_h, len(ALL_METRICS)), np.nan)
+    CELL_H = 0.18; MIN_H = 4.0
+    panel_h = [max(MIN_H, min(len(df_r[df_r["Class_Name"] == cls]),
+                              MAX_PATIENTS_HEATMAP) * CELL_H + 1.2)
+               for cls in classes]
+    FIG_W = len(active_models) * 1.2 * n_cols_h + 1.5
+    FIG_H = sum(panel_h[:n_rows_h]) + 1.5
 
-for ri, (cls, bsl) in enumerate(
-    [(c, b) for c in classes for b in baselines]
-):
-    sub = df_sum[(df_sum["Class"] == cls) & (df_sum["Baseline"] == bsl)]
-    for ci, metric in enumerate(ALL_METRICS):
-        row = sub[sub["Metric"] == metric]
-        if row.empty:
+    fig, axes = plt.subplots(n_rows_h, n_cols_h,
+                             figsize=(FIG_W, max(FIG_H, 8)),
+                             squeeze=False)
+
+    for idx in range(len(classes), n_rows_h * n_cols_h):
+        ri, ci = divmod(idx, n_cols_h)
+        axes[ri][ci].axis("off")
+
+    ref_rc = f"{REFERENCE_MODEL}_rank"
+
+    for idx, cls in enumerate(classes):
+        ri, ci = divmod(idx, n_cols_h)
+        ax     = axes[ri][ci]
+        sub    = df_r[df_r["Class_Name"] == cls].copy()
+        sub    = sub.dropna(subset=rc_cols, how="any")
+
+        if sub.empty:
+            ax.text(0.5, 0.5, "No data", ha="center", va="center",
+                    transform=ax.transAxes, color="#aaaaaa")
+            ax.set_title(cls, fontsize=8.5, fontweight="bold")
+            ax.axis("off"); continue
+
+        if ref_rc in sub.columns:
+            sub = sub.sort_values([ref_rc, "Filename"], ascending=[True, True])
+        else:
+            sub = sub.sort_values("Filename")
+
+        total_pts = len(df_r[df_r["Class_Name"] == cls])
+        n_shown   = min(len(sub), MAX_PATIENTS_HEATMAP)
+        sub       = sub.head(n_shown)
+        shown_str = (f"(top {n_shown} by {REFERENCE_MODEL} rank)"
+                     if total_pts > MAX_PATIENTS_HEATMAP
+                     else f"(all {n_shown} patients)")
+
+        rank_mat = sub[rc_cols].values.astype(float)
+        im = ax.imshow(rank_mat, cmap=rank_cmap, vmin=1, vmax=n_models,
+                       aspect="auto", interpolation="nearest")
+
+        for pi in range(rank_mat.shape[0]):
+            for mi in range(rank_mat.shape[1]):
+                r = rank_mat[pi, mi]
+                if np.isnan(r): continue
+                ax.text(mi, pi, f"{int(r)}",
+                        ha="center", va="center",
+                        fontsize=max(3.5, min(6, 60 / n_shown)),
+                        color="white" if r <= 2 else "#222222")
+
+        ax.set_xticks(range(len(active_models)))
+        ax.set_xticklabels(
+            [f"{'★' if m == REFERENCE_MODEL else ''}{m}" for m in active_models],
+            fontsize=6.5, rotation=40, ha="right")
+        ax.set_yticks([])
+        ax.set_title(f"{cls}  {shown_str}", fontsize=7.5, fontweight="bold", pad=3)
+        ax.tick_params(length=0)
+
+        if REFERENCE_MODEL in active_models:
+            rcp = active_models.index(REFERENCE_MODEL)
+            ax.axvline(rcp - 0.5, color="#0077BB", linewidth=1.2, zorder=5)
+            ax.axvline(rcp + 0.5, color="#0077BB", linewidth=1.2, zorder=5)
+
+        plt.colorbar(im, ax=ax, fraction=0.04, pad=0.04,
+                     label="Rank").ax.tick_params(labelsize=6)
+
+    lower_b   = metric in LOWER_IS_BETTER
+    direction = "lower = better" if lower_b else "higher = better"
+    fig.suptitle(
+        f"Rank heatmap — {metric}  ({direction})  |  rank 1 = best per patient\n"
+        f"Sorted by {REFERENCE_MODEL} rank  |  blue border = reference model",
+        fontsize=10, fontweight="bold", y=1.002,
+    )
+    plt.tight_layout(h_pad=1.5, w_pad=1.0)
+
+    png = os.path.join(SAVE_DIR, f"RankHeatmap_{metric}.png")
+    pdf = os.path.join(SAVE_DIR, f"RankHeatmap_{metric}.pdf")
+    plt.savefig(png, dpi=600, bbox_inches="tight", facecolor="white")
+    plt.savefig(pdf, format="pdf", bbox_inches="tight", facecolor="white")
+    plt.show(); plt.close()
+    print(f"  Saved → {png}")
+
+
+# =============================================================================
+# 9. FIGURE 3 — RANK-FREQUENCY STACKED BAR  (one per metric)
+# =============================================================================
+
+def plot_rank_frequency(metric, df_r):
+    rc_cols_here = [f"{m}_rank" for m in model_names if f"{m}_rank" in df_r.columns]
+    active       = [m for m in model_names if f"{m}_rank" in df_r.columns]
+    n_cls_here   = len(classes)
+    FIG_W        = max(10, n_cls_here * 1.8 + 2.0)
+    fig, ax      = plt.subplots(figsize=(FIG_W, 5.5))
+
+    rank_colors = plt.cm.RdYlGn_r(np.linspace(0.05, 0.95, n_models))
+    x_pos3      = np.arange(n_cls_here)
+    bar_width   = 0.8 / len(active)
+
+    for mi, model in enumerate(active):
+        rc     = f"{model}_rank"
+        color  = MODEL_COLORS.get(model, "#888888")
+        bottom = np.zeros(n_cls_here)
+
+        for rank_val in range(1, n_models + 1):
+            freqs = []
+            for cls in classes:
+                sub = df_r[df_r["Class_Name"] == cls][rc].dropna()
+                freqs.append(100 * (sub == rank_val).mean() if len(sub) > 0 else 0)
+            freqs = np.array(freqs)
+            ax.bar(
+                x_pos3 + mi * bar_width - (len(active) - 1) * bar_width / 2,
+                freqs, bottom=bottom,
+                width=bar_width * 0.88,
+                color=rank_colors[rank_val - 1],
+                alpha=0.85, edgecolor="white", linewidth=0.3, zorder=3,
+            )
+            bottom += freqs
+
+        ax.text(
+            (x_pos3 + mi * bar_width - (len(active) - 1) * bar_width / 2).mean(),
+            -4,
+            f"{'★' if model == REFERENCE_MODEL else ''}{model}",
+            ha="center", va="top", fontsize=6, color=color, fontweight="bold",
+        )
+
+    lower_b   = metric in LOWER_IS_BETTER
+    direction = "lower = better" if lower_b else "higher = better"
+    ax.set_xticks(x_pos3)
+    ax.set_xticklabels(classes, fontsize=8, rotation=25, ha="right")
+    ax.set_ylabel("% of patients", fontsize=9)
+    ax.set_ylim(-8, 108)
+    ax.set_title(
+        f"Rank-frequency distribution  —  {metric}  ({direction})\n"
+        f"Each bar = one model per class  |  stacked segments = rank 1 \u2026 {n_models}",
+        fontsize=9, fontweight="bold", pad=5,
+    )
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.grid(axis="y", linewidth=0.3, color="#eeeeee", zorder=0)
+
+    rank_handles = [
+        mpatches.Patch(
+            color=rank_colors[r - 1], alpha=0.85,
+            label=f"Rank {r}{'  (best)' if r == 1 else '  (worst)' if r == n_models else ''}",
+        )
+        for r in range(1, n_models + 1)
+    ]
+    ax.legend(handles=rank_handles, loc="upper right", frameon=False,
+              fontsize=7, ncol=1)
+    plt.tight_layout()
+
+    png = os.path.join(SAVE_DIR, f"RankFrequency_{metric}.png")
+    pdf = os.path.join(SAVE_DIR, f"RankFrequency_{metric}.pdf")
+    plt.savefig(png, dpi=600, bbox_inches="tight", facecolor="white")
+    plt.savefig(pdf, format="pdf", bbox_inches="tight", facecolor="white")
+    plt.show(); plt.close()
+    print(f"  Saved → {png}")
+
+
+# =============================================================================
+# 10. RUN FIGURES 1–3 FOR EVERY METRIC
+# =============================================================================
+
+print("Generating figures for all metrics …\n")
+for metric in ALL_METRICS:
+    df_r = rank_cache[metric]
+    print(f"--- {metric} ---")
+    plot_bump_chart(metric, df_r)
+    plot_rank_heatmap(metric, df_r)
+    plot_rank_frequency(metric, df_r)
+    print()
+
+
+# =============================================================================
+# 11. FIGURE 4 — KENDALL'S W CONCORDANCE HEATMAP  (one summary figure)
+# =============================================================================
+
+w_matrix = np.full((len(ALL_METRICS), len(classes)), np.nan)
+p_matrix = np.full((len(ALL_METRICS), len(classes)), np.nan)
+n_matrix = np.full((len(ALL_METRICS), len(classes)), np.nan)
+
+for mi, metric in enumerate(ALL_METRICS):
+    df_r_tmp    = rank_cache[metric]
+    rc_cols_tmp = [f"{m}_rank" for m in model_names if f"{m}_rank" in df_r_tmp.columns]
+    for ci, cls in enumerate(classes):
+        sub = df_r_tmp[df_r_tmp["Class_Name"] == cls][rc_cols_tmp].dropna()
+        if len(sub) < 3:
             continue
-        diff_mat[ri, ci] = row.iloc[0]["Med_diff_signed"]
-        star_mat[ri][ci] = row.iloc[0]["Stars"]
-        g_mat[ri, ci]    = row.iloc[0]["Hedges_g"]
+        w, p = kendalls_w(sub.values)
+        w_matrix[mi, ci] = w
+        p_matrix[mi, ci] = p
+        n_matrix[mi, ci] = len(sub)
 
-v_abs = np.nanmax(np.abs(diff_mat)) if np.any(np.isfinite(diff_mat)) else 1.0
+FIG4_W = max(7, len(classes) * 1.3 + 2.0)
+FIG4_H = max(4, len(ALL_METRICS) * 0.9 + 1.5)
 
-FIG5_W = len(ALL_METRICS) * 2.2 + 3.5
-FIG5_H = max(6, n_rows_h * 0.55 + 2.0)
-fig5, ax5 = plt.subplots(figsize=(FIG5_W, FIG5_H))
+fig4, ax4 = plt.subplots(figsize=(FIG4_W, FIG4_H))
+w_cmap = LinearSegmentedColormap.from_list(
+    "w_cmap", ["#CC3311", "#FFFFFF", "#009988"], N=256
+)
+im4 = ax4.imshow(w_matrix, cmap=w_cmap, vmin=0, vmax=1, aspect="auto")
 
-from matplotlib.colors import TwoSlopeNorm
-norm5 = TwoSlopeNorm(vmin=-v_abs, vcenter=0, vmax=v_abs)
-cmap5 = plt.cm.RdBu      # red = reference better (positive diff), blue = worse
-
-im5 = ax5.imshow(diff_mat, cmap=cmap5, norm=norm5, aspect="auto")
-
-for ri in range(n_rows_h):
-    for ci, metric in enumerate(ALL_METRICS):
-        v  = diff_mat[ri, ci]
-        st = star_mat[ri][ci]
-        g  = g_mat[ri, ci]
-        if np.isnan(v):
-            ax5.text(ci, ri, "—", ha="center", va="center",
-                     fontsize=7, color="#aaaaaa")
-            continue
-        txt_col = "white" if abs(v) > v_abs * 0.6 else "#111111"
-        ax5.text(ci, ri - 0.15,
-                 f"{v:+.3f}",
+for mi in range(len(ALL_METRICS)):
+    for ci in range(len(classes)):
+        w = w_matrix[mi, ci]
+        p = p_matrix[mi, ci]
+        if np.isnan(w):
+            ax4.text(ci, mi, "—", ha="center", va="center",
+                     fontsize=8, color="#aaaaaa"); continue
+        txt_col = "white" if w > 0.7 or w < 0.2 else "#111111"
+        stars   = ("****" if p < 0.0001 else "***" if p < 0.001 else
+                   "**"   if p < 0.01   else "*"   if p < 0.05  else "ns") \
+                  if not np.isnan(p) else ""
+        ax4.text(ci, mi - 0.15, f"W={w:.2f}",
                  ha="center", va="center",
-                 fontsize=7, color=txt_col, fontweight="bold")
-        label_parts = []
-        if st and st != "ns":
-            label_parts.append(st)
-        if not np.isnan(g):
-            label_parts.append(f"g={g:+.2f}")
-        if label_parts:
-            ax5.text(ci, ri + 0.25,
-                     "  ".join(label_parts),
-                     ha="center", va="center",
-                     fontsize=5.2, color=txt_col)
-
-# Class group separator lines
-for gi in range(len(classes)):
-    y_sep = gi * len(baselines) - 0.5
-    if y_sep > -0.5:
-        ax5.axhline(y_sep, color="#333333", lw=1.0, zorder=5)
+                 fontsize=7.5, color=txt_col, fontweight="bold")
+        ax4.text(ci, mi + 0.22, stars,
+                 ha="center", va="center", fontsize=6, color=txt_col)
 
 for k in range(len(ALL_METRICS) + 1):
-    ax5.axvline(k - 0.5, color="#cccccc", lw=0.4)
-for k in range(n_rows_h + 1):
-    ax5.axhline(k - 0.5, color="#cccccc", lw=0.4)
+    ax4.axhline(k - 0.5, color="#cccccc", linewidth=0.4)
+for k in range(len(classes) + 1):
+    ax4.axvline(k - 0.5, color="#cccccc", linewidth=0.4)
 
-ax5.set_xticks(range(len(ALL_METRICS)))
-ax5.set_xticklabels(ALL_METRICS, fontsize=9, fontweight="bold")
-ax5.set_yticks(range(n_rows_h))
-ax5.set_yticklabels(row_labels, fontsize=7)
-ax5.set_title(
-    f"Summary: signed median difference  ({REFERENCE_MODEL} − baseline)\n"
-    "Red = reference model better  |  Blue = baseline better  |  "
-    "Value = median diff  |  Stars = paired Wilcoxon  |  g = Hedges' g\n"
-    "(distance metrics sign-flipped so red = better always)",
+ax4.set_xticks(range(len(classes)))
+ax4.set_xticklabels(classes, fontsize=8.5, rotation=30, ha="right")
+ax4.set_yticks(range(len(ALL_METRICS)))
+ax4.set_yticklabels(ALL_METRICS, fontsize=8.5)
+ax4.set_title(
+    "Kendall's W concordance — do all models agree on which patient is hardest?\n"
+    "W = 1: perfect rank agreement  |  W = 0: random  |  Stars: Friedman \u03c7\u00b2 p-value",
     fontsize=9, fontweight="bold", pad=6,
 )
-ax5.tick_params(length=0)
-
-cb5 = plt.colorbar(im5, ax=ax5, fraction=0.025, pad=0.03)
-cb5.ax.tick_params(labelsize=7.5)
-cb5.set_label(f"{REFERENCE_MODEL} better → / ← baseline better", fontsize=7.5)
-
+ax4.tick_params(length=0)
+cb4 = plt.colorbar(im4, ax=ax4, fraction=0.025, pad=0.04)
+cb4.ax.tick_params(labelsize=7.5)
+cb4.set_label("Kendall's W", fontsize=8)
 plt.tight_layout()
-sum_png = os.path.join(SAVE_DIR, "PairedViolin_SummaryHeatmap.png")
-sum_pdf = os.path.join(SAVE_DIR, "PairedViolin_SummaryHeatmap.pdf")
-plt.savefig(sum_png, dpi=600, bbox_inches="tight", facecolor="white")
-plt.savefig(sum_pdf, format="pdf", bbox_inches="tight", facecolor="white")
-plt.show()
-print(f"Saved summary heatmap → {sum_png}")
+
+p4_png = os.path.join(SAVE_DIR, "KendallsW_Concordance.png")
+p4_pdf = os.path.join(SAVE_DIR, "KendallsW_Concordance.pdf")
+plt.savefig(p4_png, dpi=600, bbox_inches="tight", facecolor="white")
+plt.savefig(p4_pdf, format="pdf", bbox_inches="tight", facecolor="white")
+plt.show(); plt.close()
+print(f"Saved → {p4_png}")
+
 
 # =============================================================================
-# 8. EXCEL STATISTICS TABLE
+# 12. EXCEL STATISTICS TABLE
 # =============================================================================
 
-stats_path = os.path.join(SAVE_DIR, "PairedViolin_Statistics.xlsx")
-
-with pd.ExcelWriter(stats_path, engine="openpyxl") as writer:
-    df_sum.to_excel(writer, index=False, sheet_name="PairedStats")
-
-    ws = writer.sheets["PairedStats"]
-    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-
-    thin     = Border(**{s: Side(style="thin", color="CCCCCC")
-                         for s in ("left","right","top","bottom")})
-    hdr_fill = PatternFill("solid", fgColor="1F4E79")
-    hdr_font = Font(bold=True, color="FFFFFF", size=8, name="Helvetica")
-
-    sig_fill  = PatternFill("solid", fgColor="D5E8D4")   # significant
-    ns_fill   = PatternFill("solid", fgColor="F8F8F8")
-    alt_fill  = PatternFill("solid", fgColor="EBF3FB")
-    warn_fill = PatternFill("solid", fgColor="FFE6CC")   # baseline wins
-
-    # Find column indices
-    col_names = list(df_sum.columns)
-    star_col  = col_names.index("Stars") + 1         if "Stars"    in col_names else None
-    win_col   = col_names.index("Win_pct_ref") + 1   if "Win_pct_ref" in col_names else None
-
-    for cell in ws[1]:
-        cell.fill = hdr_fill; cell.font = hdr_font
-        cell.alignment = Alignment(horizontal="center")
-        cell.border = thin
-
-    for row_idx, (_, row) in enumerate(df_sum.iterrows(), start=2):
-        stars    = row.get("Stars", "")
-        win_pct  = row.get("Win_pct_ref", 50)
-
-        if stars not in ("ns", "", None) and not pd.isna(stars):
-            fill = sig_fill if win_pct >= 50 else warn_fill
-        else:
-            fill = alt_fill if row_idx % 2 == 0 else ns_fill
-
-        for cell in ws[row_idx]:
-            cell.border    = thin
-            cell.alignment = Alignment(horizontal="center")
-            cell.font      = Font(size=8, name="Helvetica")
-            cell.fill      = fill
-
-    for col in ws.columns:
-        ws.column_dimensions[col[0].column_letter].width = 17
-
-print(f"Statistics saved → {stats_path}")
-
-# =============================================================================
-# 9. CONSOLE REPORT
-# =============================================================================
-
-print("\n" + "=" * 78)
-print(f"PAIRED STATISTICS REPORT  ({REFERENCE_MODEL} vs baselines)")
-print("=" * 78)
+excel_rows   = []
+summary_rows = []
 
 for metric in ALL_METRICS:
-    print(f"\n{metric}:")
-    sub = df_sum[df_sum["Metric"] == metric]
-    print(f"  {'Class':<22} {'Baseline':<12} {'N':>5} "
-          f"{'N+':>5} {'N−':>5} {'Win%':>7} {'p':>10} {'g':>8}")
-    print("  " + "-" * 76)
-    for _, row in sub.sort_values(["Class", "Baseline"]).iterrows():
-        print(
-            f"  {row['Class']:<22} {row['Baseline']:<12} "
-            f"{int(row['N_pairs']):>5} "
-            f"{int(row['N_plus (ref wins)']):>5} "
-            f"{int(row['N_minus (bsl wins)']):>5} "
-            f"{row['Win_pct_ref']:>6.1f}% "
-            f"{str(row.get('Paired_Wilcoxon_p','—')):>10} "
-            f"{str(row.get('Hedges_g','—')):>8}"
-            f"  {row['Stars']}"
-        )
-
-print(f"\nAll outputs in: {SAVE_DIR}")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# =============================================================================
-# PAIRED VIOLIN + BOX PLOTS — CLASSIFICATION METRICS
-# Nature Medicine Style — Recall, Specificity, F1, TPR, FPR (+ FNR derived)
-# =============================================================================
-#
-# Extends the paired violin framework to pixel-level classification metrics
-# derived from the segmentation confusion matrix columns:
-#   TP, TN, FP, FN → Recall, Specificity, F1, TPR, FPR, FNR
-#
-# Metrics used:
-#   Recall / TPR  = TP / (TP + FN)          [higher = better]
-#   Specificity   = TN / (TN + FP)          [higher = better]
-#   F1_Score      = 2·TP / (2·TP + FP + FN) [higher = better]
-#   FPR           = FP / (FP + TN)          [lower  = better]
-#   FNR           = FN / (FN + TP)          [lower  = better]  ← derived
-#
-# Note: Recall == TPR by definition; both are included separately because
-# your Excel has them as independent columns — we verify they match and
-# keep both for completeness. If they are identical the panel is skipped.
-#
-# LAYOUT — one figure per class:
-#   Columns : classification metrics (5–6 columns)
-#   Rows    : baselines (4 rows)
-#   Each panel: violin + box + strip + connecting lines + paired stats
-#
-# Additional output:
-#   • Summary heatmap (class × metric signed median difference)
-#   • Excel table with paired Wilcoxon p, Hedges' g, N+/N−/ties
-#
-# =============================================================================
-
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
-import matplotlib.lines as mlines
-from matplotlib.colors import TwoSlopeNorm
-from scipy.stats import wilcoxon, gaussian_kde
-import os
-import warnings
-
-warnings.filterwarnings("ignore")
-
-# =============================================================================
-# 1. CONFIGURATION
-# =============================================================================
-
-REFERENCE_MODEL = "BAT-RM"
-
-# Each tuple: (model_name, path_to_segmentation_excel)
-# The segmentation excel must contain the columns listed in the header above.
-excel_files_seg = [
-    ("BAT-RM",    r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/200 Epochs/segmentation_metrics_enhanced_200_epoch_enhanced.xlsx'),
-    ("nnUNet",    r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/134 epochs/segmentation_metrics_detailed_epoch_134_generated.xlsx'),
-    ("SegMamba",  r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/UNET3+_segmentation_metrics_detailed_epoch_200_generated.xlsx'),
-    ("TransUNet", r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/vanilla_unet_segmentation_metrics_detailed_epoch_200_generated.xlsx'),
-    ("UNETR",     r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/nnUNet_256/Segmentation_Cervix_small_Axial_axis_pytorch_detailed_metrics_Generated.xlsx'),
-]
-
-class_list = [
-    "BODY", "URINARY BLADDER", "SMALL BOWEL",
-    "RECTUM", "FEMORAL HEAD", "GTV", "CTV",
-]
-
-# ── Metrics to plot ──
-# "derived" = computed from raw TP/TN/FP/FN columns
-# "column"  = taken directly from the Excel column of that name
-METRIC_CONFIG = {
-    "Recall":      {"source": "column",  "col": "Recall",      "lower_is_better": False},
-    "Specificity": {"source": "column",  "col": "Specificity", "lower_is_better": False},
-    "F1_Score":    {"source": "column",  "col": "F1_Score",    "lower_is_better": False},
-    "TPR":         {"source": "column",  "col": "True_Positive_Rate",  "lower_is_better": False},
-    "FPR":         {"source": "column",  "col": "False_Positive_Rate", "lower_is_better": True},
-    "FNR":         {"source": "derived", "col": None,           "lower_is_better": True},
-}
-PLOT_METRICS = list(METRIC_CONFIG.keys())
-
-# Connecting line colours
-WIN_COLOR  = "#CC3311"   # reference model wins this patient
-LOSE_COLOR = "#4477AA"   # baseline wins
-TIE_COLOR  = "#AAAAAA"
-
-MAX_LINES = 60
-N_BOOT    = 1000
-
-MODEL_COLORS = {
-    "BAT-RM":    "#0077BB",
-    "nnUNet":    "#009988",
-    "SegMamba":  "#EE7733",
-    "TransUNet": "#CC3311",
-    "UNETR":     "#AA4499",
-}
-
-SAVE_DIR = r'I:/Radiotherapy/Cervix/Paper/Result/Quantitative/PairedViolin_ClassMetrics'
-os.makedirs(SAVE_DIR, exist_ok=True)
-
-# =============================================================================
-# 2. MATPLOTLIB GLOBAL STYLE
-# =============================================================================
-
-plt.rcParams.update({
-    "font.family":      "sans-serif",
-    "font.sans-serif":  ["Helvetica", "Arial", "DejaVu Sans"],
-    "font.size":        9,
-    "axes.titlesize":   9,
-    "axes.labelsize":   8.5,
-    "xtick.labelsize":  8,
-    "ytick.labelsize":  7.5,
-    "axes.linewidth":   0.6,
-    "grid.linewidth":   0.35,
-    "axes.facecolor":   "white",
-    "figure.facecolor": "white",
-    "pdf.fonttype":     42,
-    "ps.fonttype":      42,
-    "figure.dpi":       150,
-    "savefig.dpi":      600,
-})
-
-# =============================================================================
-# 3. DATA LOADING & METRIC DERIVATION
-# =============================================================================
-
-def load_seg_metrics(excel_files, class_list):
-    """
-    Load all sheets from each segmentation Excel, concatenate,
-    filter to target classes, derive FNR, and tag with Model.
-
-    Returns long-format DataFrame with one row per patient × class × model.
-    """
-    all_data = []
-
-    raw_cols = [
-        "Filename", "Class_Name",
-        "TP", "TN", "FP", "FN",
-        "Recall", "Specificity", "F1_Score",
-        "True_Positive_Rate", "False_Positive_Rate",
-        "Precision", "IoU", "Dice",
-    ]
-
-    for name, path in excel_files:
-        df = pd.concat(pd.read_excel(path, sheet_name=None), ignore_index=True)
-
-        # Normalise class names
-        df["Class_Name"] = df["Class_Name"].astype(str).str.upper().str.strip()
-        df = df[df["Class_Name"].isin([c.upper() for c in class_list])]
-        df = df[~df["Class_Name"].isin(["BACKGROUND", "0", "NAN", "NONE", ""])]
-
-        # Keep only columns that exist
-        keep = [c for c in raw_cols if c in df.columns]
-        df   = df[keep].copy()
-
-        # Coerce numerics
-        for c in keep:
-            if c not in ("Filename", "Class_Name"):
-                df[c] = pd.to_numeric(df[c], errors="coerce")
-
-        # ── Derive FNR = FN / (FN + TP) ──
-        if "FN" in df.columns and "TP" in df.columns:
-            denom    = df["FN"] + df["TP"]
-            df["FNR"] = np.where(denom > 0, df["FN"] / denom, np.nan)
-        else:
-            df["FNR"] = np.nan
-
-        # Verify TPR == Recall (they should be identical; flag if not)
-        if "True_Positive_Rate" in df.columns and "Recall" in df.columns:
-            delta = (df["True_Positive_Rate"] - df["Recall"]).abs()
-            if delta.max() > 1e-6:
-                print(f"  ⚠  {name}: TPR and Recall differ (max Δ={delta.max():.6f})")
-
-        df["Model"] = name
-        all_data.append(df)
-
-    if not all_data:
-        raise ValueError("No segmentation data loaded. Check file paths.")
-
-    return pd.concat(all_data, ignore_index=True)
-
-
-print("Loading segmentation metrics …")
-df_all = load_seg_metrics(excel_files_seg, class_list)
-
-model_names = [m for m, _ in excel_files_seg]
-baselines   = [m for m in model_names if m != REFERENCE_MODEL]
-classes     = sorted(df_all["Class_Name"].dropna().unique())
-
-print(f"Models   : {model_names}")
-print(f"Classes  : {classes}")
-print(f"Metrics  : {PLOT_METRICS}")
-print(f"Patients : {df_all['Filename'].nunique()}\n")
-
-# =============================================================================
-# 4. STATISTICAL HELPERS  (identical to paired_violin_plot.py)
-# =============================================================================
-
-def paired_hedges_g(diff):
-    diff = np.asarray(diff, float)
-    n    = len(diff)
-    if n < 2:
-        return np.nan
-    d = diff.mean() / (diff.std(ddof=1) + 1e-12)
-    j = 1 - 3 / (4 * (n - 1) - 1)
-    return d * j
-
-
-def bootstrap_g_ci(diff, n_boot=N_BOOT, seed=42):
-    diff = np.asarray(diff, float)
-    n    = len(diff)
-    if n < 3:
-        return np.nan, np.nan
-    rng  = np.random.default_rng(seed)
-    boot = np.array([paired_hedges_g(diff[rng.integers(0, n, n)])
-                     for _ in range(n_boot)])
-    return float(np.nanpercentile(boot, 2.5)), float(np.nanpercentile(boot, 97.5))
-
-
-def paired_wilcoxon_test(x_ref, x_bsl):
-    diff = np.asarray(x_ref) - np.asarray(x_bsl)
-    if len(diff) < 3 or np.all(diff == 0):
-        return np.nan, np.nan
-    try:
-        stat, p = wilcoxon(x_ref, x_bsl, zero_method="pratt")
-        return stat, p
-    except Exception:
-        return np.nan, np.nan
-
-
-def concordant_discordant(x_ref, x_bsl, lower_is_better):
-    diff = np.asarray(x_ref, float) - np.asarray(x_bsl, float)
-    tol  = 1e-9
-    if lower_is_better:
-        n_plus  = int((diff < -tol).sum())
-        n_minus = int((diff >  tol).sum())
-    else:
-        n_plus  = int((diff >  tol).sum())
-        n_minus = int((diff < -tol).sum())
-    ties = int((np.abs(diff) <= tol).sum())
-    return n_plus, n_minus, ties
-
-
-def p_stars(p):
-    if np.isnan(p): return ""
-    if p < 0.0001:  return "****"
-    if p < 0.001:   return "***"
-    if p < 0.01:    return "**"
-    if p < 0.05:    return "*"
-    return "ns"
-
-# =============================================================================
-# 5. PANEL DRAWING FUNCTION
-# =============================================================================
-
-def draw_paired_panel(ax, ref_arr, bsl_arr,
-                      ref_name, bsl_name, metric_label,
-                      lower_is_better, rng,
-                      max_lines=MAX_LINES):
-    """
-    Full paired violin + box + strip + connecting lines panel.
-    Returns dict of computed statistics.
-    """
-    ref_arr = np.asarray(ref_arr, float)
-    bsl_arr = np.asarray(bsl_arr, float)
-    n       = len(ref_arr)
-    c_ref   = MODEL_COLORS.get(ref_name, "#0077BB")
-    c_bsl   = MODEL_COLORS.get(bsl_name, "#888888")
-    x_ref, x_bsl = 0, 1
-
-    # ── Violin ──
-    for xi, arr, color in [(x_ref, ref_arr, c_ref), (x_bsl, bsl_arr, c_bsl)]:
-        if len(arr) >= 4:
-            try:
-                kde  = gaussian_kde(arr, bw_method="scott")
-                y_ev = np.linspace(arr.min(), arr.max(), 300)
-                dens = kde(y_ev)
-                dens = dens / dens.max() * 0.36
-                ax.fill_betweenx(y_ev, xi - dens, xi + dens,
-                                 color=color, alpha=0.18, zorder=1)
-                ax.plot(xi - dens, y_ev, color=color, lw=0.7, alpha=0.6, zorder=2)
-                ax.plot(xi + dens, y_ev, color=color, lw=0.7, alpha=0.6, zorder=2)
-            except Exception:
-                pass
-
-    # ── Box ──
-    for xi, arr, color in [(x_ref, ref_arr, c_ref), (x_bsl, bsl_arr, c_bsl)]:
-        q25, q50, q75 = np.percentile(arr, [25, 50, 75])
-        p05, p95      = np.percentile(arr, [5,  95])
-        ax.plot([xi - 0.20, xi + 0.20], [q50, q50],
-                color=color, lw=2.4, solid_capstyle="round", zorder=6)
-        ax.add_patch(plt.Rectangle(
-            (xi - 0.15, q25), 0.30, q75 - q25,
-            facecolor=color, alpha=0.22, edgecolor=color, lw=0.9, zorder=4,
-        ))
-        ax.plot([xi, xi], [p05, q25], color=color, lw=0.8, alpha=0.6, zorder=3)
-        ax.plot([xi, xi], [q75, p95], color=color, lw=0.8, alpha=0.6, zorder=3)
-        for y_w in [p05, p95]:
-            ax.plot([xi - 0.08, xi + 0.08], [y_w, y_w],
-                    color=color, lw=0.8, alpha=0.6, zorder=3)
-
-    # ── Connecting lines ──
-    indices = np.arange(n)
-    if n > max_lines:
-        indices = rng.choice(n, max_lines, replace=False)
-        note = f"(showing {max_lines}/{n} pairs)"
-    else:
-        note = f"(n={n} pairs)"
-
-    tol = 1e-9
-    for idx in indices:
-        rv, bv = ref_arr[idx], bsl_arr[idx]
-        if lower_is_better:
-            ref_wins = rv < bv - tol
-            bsl_wins = bv < rv - tol
-        else:
-            ref_wins = rv > bv + tol
-            bsl_wins = bv > rv + tol
-        lc = WIN_COLOR if ref_wins else (LOSE_COLOR if bsl_wins else TIE_COLOR)
-        jx_r = x_ref + rng.uniform(-0.08, 0.08)
-        jx_b = x_bsl + rng.uniform(-0.08, 0.08)
-        ax.plot([jx_r, jx_b], [rv, bv],
-                color=lc, lw=0.45, alpha=0.35, zorder=3)
-
-    # ── Strip dots ──
-    for xi, arr, color in [(x_ref, ref_arr, c_ref), (x_bsl, bsl_arr, c_bsl)]:
-        jitter = rng.uniform(-0.10, 0.10, size=len(arr))
-        ax.scatter(xi + jitter, arr, color=color, s=9, alpha=0.50,
-                   edgecolors="white", linewidths=0.2, zorder=5)
-
-    # ── Statistics ──
-    _, p_val            = paired_wilcoxon_test(ref_arr, bsl_arr)
-    diff                = ref_arr - bsl_arr
-    g_diff              = -diff if lower_is_better else diff
-    g                   = paired_hedges_g(g_diff)
-    g_lo, g_hi          = bootstrap_g_ci(g_diff, N_BOOT)
-    n_plus, n_minus, ties = concordant_discordant(ref_arr, bsl_arr, lower_is_better)
-    stars               = p_stars(p_val)
-
-    # ── Significance bracket ──
-    y_max   = max(ref_arr.max(), bsl_arr.max())
-    y_min   = min(ref_arr.min(), bsl_arr.min())
-    y_range = (y_max - y_min) if y_max > y_min else 0.05
-    y_brk   = y_max + y_range * 0.08
-
-    ax.plot([x_ref, x_ref, x_bsl, x_bsl],
-            [y_brk, y_brk + y_range * 0.02,
-             y_brk + y_range * 0.02, y_brk],
-            color="#333333", lw=0.9, zorder=8)
-
-    sig_col = "#CC2222" if stars not in ("ns", "") else "#666666"
-    ax.text(0.5, y_brk + y_range * 0.04,
-            stars or "ns", ha="center", va="bottom",
-            fontsize=8, color=sig_col, fontweight="bold", zorder=9)
-    ax.text(0.5, y_brk + y_range * 0.09,
-            f"p={p_val:.4f}" if not np.isnan(p_val) else "p=n/a",
-            ha="center", va="bottom", fontsize=5.5, color="#555555", zorder=9)
-    ax.text(0.5, y_brk + y_range * 0.155,
-            f"N+={n_plus}  N−={n_minus}"
-            + (f"  ties={ties}" if ties else ""),
-            ha="center", va="bottom", fontsize=5.5, color="#333333", zorder=9)
-
-    # ── Inset stats box ──
-    ref_med = float(np.median(ref_arr))
-    bsl_med = float(np.median(bsl_arr))
-    ref_iqr = float(np.subtract(*np.percentile(ref_arr, [75, 25])))
-    bsl_iqr = float(np.subtract(*np.percentile(bsl_arr, [75, 25])))
-    g_str   = (f"{g:+.2f} [{g_lo:+.2f},{g_hi:+.2f}]"
-               if not np.isnan(g) else "n/a")
-
-    stats_txt = (
-        f"{'Model':<9} {'Med':>6}  {'IQR':>6}\n"
-        f"{'─'*26}\n"
-        f"{'★'+ref_name:<9} {ref_med:>6.4f}  {ref_iqr:>6.4f}\n"
-        f"{bsl_name:<9} {bsl_med:>6.4f}  {bsl_iqr:>6.4f}\n"
-        f"{'─'*26}\n"
-        f"g = {g_str}\n"
-        f"{note}"
-    )
-    ax.text(1.04, 0.99, stats_txt,
-            transform=ax.transAxes, va="top", ha="left",
-            fontsize=5.0, fontfamily="monospace", color="#222222",
-            bbox=dict(boxstyle="round,pad=0.3", facecolor="white",
-                      edgecolor="#cccccc", lw=0.5, alpha=0.90),
-            zorder=10, clip_on=False)
-
-    # ── Axis ──
-    ax.set_xticks([x_ref, x_bsl])
-    ax.set_xticklabels(
-        [f"{'★ ' if ref_name == REFERENCE_MODEL else ''}{ref_name}", bsl_name],
-        fontsize=7,
-    )
-    ax.set_xlim(-0.55, 1.55)
-    ax.set_ylim(y_min - y_range * 0.08, y_brk + y_range * 0.30)
-    ax.set_ylabel(metric_label, fontsize=8)
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    ax.spines["left"].set_linewidth(0.5)
-    ax.spines["bottom"].set_linewidth(0.5)
-    ax.tick_params(axis="y", labelsize=7)
-    ax.tick_params(axis="x", length=0)
-    ax.grid(axis="y", linewidth=0.3, color="#eeeeee", zorder=0)
-
-    return dict(
-        p_val=p_val, stars=stars, g=g, g_lo=g_lo, g_hi=g_hi,
-        n_pairs=n, n_plus=n_plus, n_minus=n_minus, ties=ties,
-        ref_median=ref_med, bsl_median=bsl_med,
-        ref_iqr=ref_iqr, bsl_iqr=bsl_iqr,
-    )
-
-# =============================================================================
-# 6. HELPER: get metric column for a given metric name
-# =============================================================================
-
-def get_metric_series(df_model_cls, metric):
-    """
-    Return a Series of metric values for one (model, class) slice.
-    Handles both direct column reads and derived FNR.
-    """
-    cfg = METRIC_CONFIG[metric]
-    if cfg["source"] == "derived":
-        # FNR = FN / (FN + TP)
-        if "FN" in df_model_cls.columns and "TP" in df_model_cls.columns:
-            fn   = pd.to_numeric(df_model_cls["FN"], errors="coerce")
-            tp   = pd.to_numeric(df_model_cls["TP"], errors="coerce")
-            denom = fn + tp
-            return np.where(denom > 0, fn / denom, np.nan)
-        return np.full(len(df_model_cls), np.nan)
-    else:
-        col = cfg["col"]
-        if col not in df_model_cls.columns:
-            return np.full(len(df_model_cls), np.nan)
-        return pd.to_numeric(df_model_cls[col], errors="coerce").values
-
-# =============================================================================
-# 7. MAIN LOOP — one figure per class
-# =============================================================================
-
-rng = np.random.default_rng(42)
-summary_records = []
-
-ref_df = df_all[df_all["Model"] == REFERENCE_MODEL]
-
-# Direction label per metric
-DIRECTION = {
-    m: ("↓ lower = better" if METRIC_CONFIG[m]["lower_is_better"]
-        else "↑ higher = better")
-    for m in PLOT_METRICS
-}
-
-for cls in classes:
-    n_baselines = len(baselines)
-    n_metrics   = len(PLOT_METRICS)
-
-    PANEL_W = 2.8
-    PANEL_H = 3.6
-    FIG_W   = n_metrics * (PANEL_W + 1.5) + 0.6
-    FIG_H   = n_baselines * PANEL_H + 2.0
-
-    fig, axes = plt.subplots(
-        n_baselines, n_metrics,
-        figsize=(FIG_W, FIG_H),
-        squeeze=False,
-    )
-
-    # Column headers (first row only)
-    for ci, metric in enumerate(PLOT_METRICS):
-        axes[0][ci].set_title(
-            f"{metric}\n{DIRECTION[metric]}",
-            fontsize=8.5, fontweight="bold", pad=6,
-        )
-
-    for ri, baseline in enumerate(baselines):
-        bsl_df = df_all[df_all["Model"] == baseline]
-
-        for ci, metric in enumerate(PLOT_METRICS):
-            ax        = axes[ri][ci]
-            lower_b   = METRIC_CONFIG[metric]["lower_is_better"]
-
-            # ── Reference values ──
-            ref_cls = ref_df[ref_df["Class_Name"] == cls][
-                ["Filename"] + [c for c in ["TP","TN","FP","FN"] if c in ref_df.columns]
-            ].copy()
-            ref_cls["_metric"] = get_metric_series(
-                ref_df[ref_df["Class_Name"] == cls].reset_index(drop=True),
-                metric
+    df_r         = rank_cache[metric]
+    rc_cols_here = [f"{m}_rank" for m in model_names if f"{m}_rank" in df_r.columns]
+    active       = [m for m in model_names if f"{m}_rank" in df_r.columns]
+
+    for cls in classes:
+        sub = df_r[df_r["Class_Name"] == cls].copy()
+        sub = sub.dropna(subset=rc_cols_here, how="any")
+        if sub.empty:
+            continue
+
+        for _, row in sub.iterrows():
+            rec = {"Metric": metric, "Class": cls, "Filename": row["Filename"]}
+            for m in active:
+                rec[f"{m}_rank"] = row.get(f"{m}_rank", np.nan)
+                rec[f"{m}_val"]  = row.get(f"{m}_val",  np.nan)
+            excel_rows.append(rec)
+
+        rank_mat = sub[rc_cols_here].values
+        w, p_w   = kendalls_w(rank_mat)
+
+        try:
+            fr_stat, fr_p = friedmanchisquare(
+                *[sub[rc].dropna().values for rc in rc_cols_here]
             )
-            ref_cls = ref_cls[["Filename", "_metric"]].dropna()
+        except Exception:
+            fr_stat, fr_p = np.nan, np.nan
 
-            # ── Baseline values ──
-            bsl_cls = bsl_df[bsl_df["Class_Name"] == cls].copy().reset_index(drop=True)
-            bsl_cls["_metric"] = get_metric_series(bsl_cls, metric)
-            bsl_cls = bsl_cls[["Filename", "_metric"]].dropna()
-
-            # ── Paired merge ──
-            merged = pd.merge(
-                ref_cls.rename(columns={"_metric": "ref"}),
-                bsl_cls.rename(columns={"_metric": "bsl"}),
-                on="Filename",
-            ).dropna()
-            merged = merged[
-                np.isfinite(merged["ref"]) & np.isfinite(merged["bsl"])
-            ]
-
-            if len(merged) < 3:
-                ax.text(0.5, 0.5, "Insufficient\npaired data",
-                        ha="center", va="center", fontsize=8,
-                        color="#aaaaaa", transform=ax.transAxes)
-                ax.axis("off")
-                continue
-
-            out = draw_paired_panel(
-                ax,
-                ref_arr  = merged["ref"].values,
-                bsl_arr  = merged["bsl"].values,
-                ref_name = REFERENCE_MODEL,
-                bsl_name = baseline,
-                metric_label = metric,
-                lower_is_better = lower_b,
-                rng      = rng,
-            )
-
-            # Only show metric title on first baseline row
-            if ri > 0:
-                ax.set_title("")
-
-            summary_records.append({
-                "Class":              cls,
-                "Metric":             metric,
-                "Baseline":           baseline,
-                "N_pairs":            out["n_pairs"],
-                "Ref_median":         round(out["ref_median"], 5),
-                "Bsl_median":         round(out["bsl_median"], 5),
-                "Ref_IQR":            round(out["ref_iqr"],    5),
-                "Bsl_IQR":            round(out["bsl_iqr"],    5),
-                "N_plus_ref_wins":    out["n_plus"],
-                "N_minus_bsl_wins":   out["n_minus"],
-                "Ties":               out["ties"],
-                "Win_pct_ref":        round(100 * out["n_plus"] /
-                                            max(out["n_pairs"], 1), 1),
-                "Paired_Wilcoxon_p":  round(out["p_val"], 5)
-                                      if not np.isnan(out["p_val"]) else np.nan,
-                "Stars":              out["stars"],
-                "Hedges_g":           round(out["g"],    3) if not np.isnan(out["g"])    else np.nan,
-                "g_CI_lo":            round(out["g_lo"], 3) if not np.isnan(out["g_lo"]) else np.nan,
-                "g_CI_hi":            round(out["g_hi"], 3) if not np.isnan(out["g_hi"]) else np.nan,
+        for m in active:
+            rc   = f"{m}_rank"
+            vals = sub[rc].dropna().values
+            summary_rows.append({
+                "Metric":       metric,
+                "Class":        cls,
+                "Model":        m,
+                "N_patients":   len(vals),
+                "Mean_rank":    round(vals.mean(),              3) if len(vals) > 0 else np.nan,
+                "Median_rank":  round(np.median(vals),          1) if len(vals) > 0 else np.nan,
+                "Rank_SD":      round(vals.std(ddof=1),         3) if len(vals) > 1 else np.nan,
+                "Rank1_pct":    round(100 * (vals == 1).mean(), 1),
+                "RankLast_pct": round(100 * (vals == n_models).mean(), 1),
+                "Kendalls_W":   round(w,    3) if not np.isnan(w)    else np.nan,
+                "Friedman_p":   round(fr_p, 4) if not np.isnan(fr_p) else np.nan,
             })
 
-    # ── Legend ──
-    handles = [
-        mlines.Line2D([0],[0], color=MODEL_COLORS.get(REFERENCE_MODEL,"#0077BB"),
-                      lw=2.0, label=f"★ {REFERENCE_MODEL}"),
-    ] + [
-        mlines.Line2D([0],[0], color=MODEL_COLORS.get(b,"#888888"),
-                      lw=2.0, label=b)
-        for b in baselines
-    ] + [
-        mlines.Line2D([0],[0], color=WIN_COLOR,  lw=1.0, alpha=0.7,
-                      label=f"{REFERENCE_MODEL} wins (red)"),
-        mlines.Line2D([0],[0], color=LOSE_COLOR, lw=1.0, alpha=0.7,
-                      label="Baseline wins (blue)"),
-        mlines.Line2D([0],[0], color=TIE_COLOR,  lw=1.0, alpha=0.7,
-                      label="Tie (grey)"),
-    ]
-    fig.legend(handles=handles, loc="lower center",
-               ncol=len(handles), frameon=False,
-               fontsize=7.5, bbox_to_anchor=(0.5, -0.01))
+df_excel   = pd.DataFrame(excel_rows)
+df_summary = pd.DataFrame(summary_rows)
 
-    fig.suptitle(
-        f"Paired violin + box — classification metrics — {cls}\n"
-        f"Red line = {REFERENCE_MODEL} wins that patient  |  Blue = baseline wins  |  "
-        f"Bracket: paired Wilcoxon  |  N+ / N− = concordant / discordant  |  g = Hedges' g",
-        fontsize=9, fontweight="bold", y=1.002,
-    )
-    plt.tight_layout(w_pad=3.5, h_pad=1.5, rect=[0, 0.04, 1, 0.998])
+excel_path = os.path.join(SAVE_DIR, "RankingConsistency_Statistics.xlsx")
+with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
+    df_summary.to_excel(writer, index=False, sheet_name="Summary")
+    df_excel.to_excel(writer,   index=False, sheet_name="PerPatient_Ranks")
 
-    safe_cls = cls.replace(" ", "_")
-    png_path = os.path.join(SAVE_DIR, f"PairedViolin_ClassMetrics_{safe_cls}.png")
-    pdf_path = os.path.join(SAVE_DIR, f"PairedViolin_ClassMetrics_{safe_cls}.pdf")
-    plt.savefig(png_path, dpi=600, bbox_inches="tight", facecolor="white")
-    plt.savefig(pdf_path, format="pdf", bbox_inches="tight", facecolor="white")
-    plt.show()
-    print(f"Saved → {png_path}")
-
-# =============================================================================
-# 8. SUMMARY HEATMAP — signed median difference across all classes × metrics
-# =============================================================================
-
-df_sum = pd.DataFrame(summary_records)
-
-# Sign-flip so that positive ALWAYS means reference model is better
-df_sum["Med_diff_signed"] = df_sum.apply(
-    lambda r: (r["Ref_median"] - r["Bsl_median"])
-              * (-1 if METRIC_CONFIG[r["Metric"]]["lower_is_better"] else 1),
-    axis=1,
-)
-
-row_labels = [f"{cls}\nvs {bsl}" for cls in classes for bsl in baselines]
-n_rows_h   = len(row_labels)
-
-diff_mat = np.full((n_rows_h, len(PLOT_METRICS)), np.nan)
-star_mat = [[""] * len(PLOT_METRICS) for _ in range(n_rows_h)]
-g_mat    = np.full((n_rows_h, len(PLOT_METRICS)), np.nan)
-
-for ri, (cls, bsl) in enumerate([(c, b) for c in classes for b in baselines]):
-    sub = df_sum[(df_sum["Class"] == cls) & (df_sum["Baseline"] == bsl)]
-    for ci, metric in enumerate(PLOT_METRICS):
-        row = sub[sub["Metric"] == metric]
-        if row.empty:
-            continue
-        diff_mat[ri, ci] = row.iloc[0]["Med_diff_signed"]
-        star_mat[ri][ci] = row.iloc[0]["Stars"]
-        g_mat[ri, ci]    = row.iloc[0]["Hedges_g"]
-
-v_abs = np.nanmax(np.abs(diff_mat)) if np.any(np.isfinite(diff_mat)) else 0.01
-
-FIG_SUM_W = len(PLOT_METRICS) * 2.0 + 3.5
-FIG_SUM_H = max(6, n_rows_h * 0.55 + 2.0)
-fig_s, ax_s = plt.subplots(figsize=(FIG_SUM_W, FIG_SUM_H))
-
-norm_s = TwoSlopeNorm(vmin=-v_abs, vcenter=0, vmax=v_abs)
-im_s   = ax_s.imshow(diff_mat, cmap=plt.cm.RdBu, norm=norm_s, aspect="auto")
-
-for ri in range(n_rows_h):
-    for ci, metric in enumerate(PLOT_METRICS):
-        v  = diff_mat[ri, ci]
-        st = star_mat[ri][ci]
-        g  = g_mat[ri, ci]
-        if np.isnan(v):
-            ax_s.text(ci, ri, "—", ha="center", va="center",
-                      fontsize=7, color="#aaaaaa")
-            continue
-        txt_col = "white" if abs(v) > v_abs * 0.6 else "#111111"
-        ax_s.text(ci, ri - 0.15, f"{v:+.4f}",
-                  ha="center", va="center",
-                  fontsize=7, color=txt_col, fontweight="bold")
-        parts = []
-        if st and st != "ns":
-            parts.append(st)
-        if not np.isnan(g):
-            parts.append(f"g={g:+.2f}")
-        if parts:
-            ax_s.text(ci, ri + 0.25, "  ".join(parts),
-                      ha="center", va="center", fontsize=5.2, color=txt_col)
-
-# Class group separators
-for gi in range(len(classes)):
-    y_sep = gi * len(baselines) - 0.5
-    if y_sep > -0.5:
-        ax_s.axhline(y_sep, color="#333333", lw=1.0, zorder=5)
-for k in range(len(PLOT_METRICS) + 1):
-    ax_s.axvline(k - 0.5, color="#cccccc", lw=0.4)
-for k in range(n_rows_h + 1):
-    ax_s.axhline(k - 0.5, color="#cccccc", lw=0.4)
-
-ax_s.set_xticks(range(len(PLOT_METRICS)))
-ax_s.set_xticklabels(PLOT_METRICS, fontsize=9, fontweight="bold")
-ax_s.set_yticks(range(n_rows_h))
-ax_s.set_yticklabels(row_labels, fontsize=7)
-ax_s.set_title(
-    f"Summary — signed median difference  ({REFERENCE_MODEL} − baseline)\n"
-    "Red = reference model better  |  Blue = baseline better  |  "
-    "Value = Δmedian  |  Stars = paired Wilcoxon  |  g = Hedges' g\n"
-    "(lower-is-better metrics sign-flipped so red = better always)",
-    fontsize=9, fontweight="bold", pad=6,
-)
-ax_s.tick_params(length=0)
-cb_s = plt.colorbar(im_s, ax=ax_s, fraction=0.025, pad=0.03)
-cb_s.ax.tick_params(labelsize=7.5)
-cb_s.set_label(f"{REFERENCE_MODEL} better → / ← baseline better", fontsize=7.5)
-
-plt.tight_layout()
-sum_png = os.path.join(SAVE_DIR, "PairedViolin_ClassMetrics_SummaryHeatmap.png")
-sum_pdf = os.path.join(SAVE_DIR, "PairedViolin_ClassMetrics_SummaryHeatmap.pdf")
-plt.savefig(sum_png, dpi=600, bbox_inches="tight", facecolor="white")
-plt.savefig(sum_pdf, format="pdf", bbox_inches="tight", facecolor="white")
-plt.show()
-print(f"Saved summary heatmap → {sum_png}")
-
-# =============================================================================
-# 9. EXCEL TABLE
-# =============================================================================
-
-stats_path = os.path.join(SAVE_DIR, "PairedViolin_ClassMetrics_Statistics.xlsx")
-
-with pd.ExcelWriter(stats_path, engine="openpyxl") as writer:
-    df_sum.to_excel(writer, index=False, sheet_name="PairedStats")
-
-    ws = writer.sheets["PairedStats"]
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
     thin     = Border(**{s: Side(style="thin", color="CCCCCC")
-                         for s in ("left","right","top","bottom")})
+                         for s in ("left", "right", "top", "bottom")})
     hdr_fill = PatternFill("solid", fgColor="1F4E79")
     hdr_font = Font(bold=True, color="FFFFFF", size=8, name="Helvetica")
-    sig_fill = PatternFill("solid", fgColor="D5E8D4")
-    ns_fill  = PatternFill("solid", fgColor="F8F8F8")
+    ref_fill = PatternFill("solid", fgColor="D5E8D4")
     alt_fill = PatternFill("solid", fgColor="EBF3FB")
-    warn_fill= PatternFill("solid", fgColor="FFE6CC")
 
-    for cell in ws[1]:
-        cell.fill = hdr_fill; cell.font = hdr_font
-        cell.alignment = Alignment(horizontal="center"); cell.border = thin
-
-    for row_idx, (_, row) in enumerate(df_sum.iterrows(), start=2):
-        stars   = row.get("Stars", "")
-        win_pct = row.get("Win_pct_ref", 50)
-        if stars not in ("ns", "", None) and not pd.isna(stars):
-            fill = sig_fill if win_pct >= 50 else warn_fill
-        else:
-            fill = alt_fill if row_idx % 2 == 0 else ns_fill
-        for cell in ws[row_idx]:
-            cell.border    = thin
+    for sheet_name in ["Summary", "PerPatient_Ranks"]:
+        ws = writer.sheets[sheet_name]
+        for cell in ws[1]:
+            cell.fill = hdr_fill; cell.font = hdr_font
             cell.alignment = Alignment(horizontal="center")
-            cell.font      = Font(size=8, name="Helvetica")
-            cell.fill      = fill
-    for col in ws.columns:
-        ws.column_dimensions[col[0].column_letter].width = 16
+            cell.border = thin
+        for row_idx in range(2, ws.max_row + 1):
+            is_ref = any(cell.value == REFERENCE_MODEL for cell in ws[row_idx])
+            fill   = ref_fill if is_ref else \
+                     (alt_fill if row_idx % 2 == 0 else PatternFill())
+            for cell in ws[row_idx]:
+                cell.border    = thin
+                cell.alignment = Alignment(horizontal="center")
+                cell.font      = Font(size=8, name="Helvetica", bold=is_ref)
+                if fill.fill_type:
+                    cell.fill = fill
+        for col in ws.columns:
+            ws.column_dimensions[col[0].column_letter].width = 16
 
-print(f"Statistics saved → {stats_path}")
+print(f"\nStatistics saved → {excel_path}")
+
 
 # =============================================================================
-# 10. CONSOLE REPORT
+# 13. CONSOLE RANKING REPORT  (all metrics)
 # =============================================================================
 
-print("\n" + "=" * 80)
-print(f"PAIRED CLASSIFICATION METRICS REPORT  ({REFERENCE_MODEL} vs baselines)")
-print("=" * 80)
-for metric in PLOT_METRICS:
-    print(f"\n{metric}  ({'↓ lower better' if METRIC_CONFIG[metric]['lower_is_better'] else '↑ higher better'}):")
-    sub = df_sum[df_sum["Metric"] == metric]
-    print(f"  {'Class':<22} {'Baseline':<12} {'N':>5} {'N+':>5} "
-          f"{'N−':>5} {'Win%':>7} {'p':>10} {'g':>8}  Sig")
-    print("  " + "-" * 78)
-    for _, row in sub.sort_values(["Class", "Baseline"]).iterrows():
+print("\n" + "=" * 76)
+print("RANKING CONSISTENCY REPORT")
+print("=" * 76)
+
+for metric in ALL_METRICS:
+    lower_b   = metric in LOWER_IS_BETTER
+    direction = "lower=better" if lower_b else "higher=better"
+    print(f"\n{metric}  ({direction}):")
+    print(f"  {'Model':<14} {'Class':<22} {'Mean rank':>10} "
+          f"{'Rank-1%':>9} {'Rank-last%':>11} {'W':>7}")
+    print("  " + "-" * 74)
+    sub_s = df_summary[df_summary["Metric"] == metric]
+    for _, row in sub_s.sort_values(["Class", "Mean_rank"]).iterrows():
+        marker = "★ " if row["Model"] == REFERENCE_MODEL else "  "
         print(
-            f"  {row['Class']:<22} {row['Baseline']:<12} "
-            f"{int(row['N_pairs']):>5} "
-            f"{int(row['N_plus_ref_wins']):>5} "
-            f"{int(row['N_minus_bsl_wins']):>5} "
-            f"{row['Win_pct_ref']:>6.1f}% "
-            f"{str(row.get('Paired_Wilcoxon_p','—')):>10} "
-            f"{str(row.get('Hedges_g','—')):>8}  "
-            f"{row['Stars']}"
+            f"  {marker}{row['Model']:<12} {row['Class']:<22} "
+            f"{row['Mean_rank']:>10.2f} "
+            f"{row['Rank1_pct']:>8.1f}% "
+            f"{row['RankLast_pct']:>10.1f}% "
+            f"{str(row.get('Kendalls_W', '—')):>7}"
         )
 
 print(f"\nAll outputs in: {SAVE_DIR}")
+print(f"\nFiles generated (x{len(ALL_METRICS)} metrics):")
+for m in ALL_METRICS:
+    print(f"  RankBumpChart_{m}.png/pdf")
+    print(f"  RankHeatmap_{m}.png/pdf")
+    print(f"  RankFrequency_{m}.png/pdf")
+print("  KendallsW_Concordance.png/pdf")
+print("  RankingConsistency_Statistics.xlsx")
+
+    
