@@ -14604,4 +14604,1201 @@ for m in ALL_METRICS:
 print("  KendallsW_Concordance.png/pdf")
 print("  RankingConsistency_Statistics.xlsx")
 
-    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# =============================================================================
+# METRICS SUMMARY + STATISTICAL ANALYSIS EXCEL GENERATOR
+# Two sheets per metric: <Metric> (summary) and <Metric>_Stats (comparisons)
+# Reference: BAT-RM vs all baselines
+# Stats: Paired Wilcoxon, Cohen's d, Hedges' g, Effect Size
+# =============================================================================
+
+import pandas as pd
+import numpy as np
+from scipy.stats import wilcoxon
+import os
+import warnings
+warnings.filterwarnings("ignore")
+
+from openpyxl import Workbook
+from openpyxl.styles import (Font, PatternFill, Alignment, Border, Side,
+                              GradientFill)
+from openpyxl.utils import get_column_letter
+
+# =============================================================================
+# 1. CONFIGURATION  (identical to original script)
+# =============================================================================
+
+REFERENCE_MODEL = "BAT-RM"
+
+excel_files_seg = [
+    ("BAT-RM",    r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/200 Epochs/segmentation_metrics_enhanced_200_epoch_enhanced.xlsx'),
+    ("nnUNet",    r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/134 epochs/segmentation_metrics_detailed_epoch_134_generated.xlsx'),
+    ("SegMamba",  r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/UNET3+_segmentation_metrics_detailed_epoch_200_generated.xlsx'),
+    ("TransUNet", r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/vanilla_unet_segmentation_metrics_detailed_epoch_200_generated.xlsx'),
+    ("UNETR",     r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/nnUNet_256/Segmentation_Cervix_small_Axial_axis_pytorch_detailed_metrics_Generated.xlsx'),
+]
+
+excel_files_bnd = [
+    ("BAT-RM",    r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/200 Epochs/boundary_metrics_epoch_200_enhanced_v5.xlsx'),
+    ("nnUNet",    r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/134 epochs/boundary_metrics_epoch_134_generated.xlsx'),
+    ("SegMamba",  r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/UNET3+_boundary_metrics_epoch_200_generated.xlsx'),
+    ("TransUNet", r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/vanilla_unet_boundary_metrics_epoch_200_generated.xlsx'),
+    ("UNETR",     r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/nnUNet_256/boundary_metrics_nnUNet_100_epochs_generated.xlsx'),
+]
+
+SEG_METRICS  = ["Dice", "IoU", "Recall", "Specificity"]
+BND_METRICS  = ["HD95", "ASD", "NSD", "HD", "RAVD"]
+DER_METRICS  = ["TPR", "TNR", "FPR", "FNR"]   # derived
+ALL_METRICS  = SEG_METRICS + BND_METRICS + DER_METRICS
+
+LOWER_IS_BETTER = {"HD95", "ASD", "HD", "RVD", "RAVD", "FPR", "FNR"}
+
+class_list = [
+    "BODY", "URINARY BLADDER", "SMALL BOWEL",
+    "RECTUM", "FEMORAL HEAD", "GTV", "CTV",
+]
+CLASS_LABELS = {
+    "BODY":             "Body",
+    "URINARY BLADDER":  "Bladder",
+    "SMALL BOWEL":      "Sm. Bowel",
+    "RECTUM":           "Rectum",
+    "FEMORAL HEAD":     "Fem. Head",
+    "GTV":              "GTV",
+    "CTV":              "CTV",
+}
+
+N_BOOT = 1000
+SAVE_PATH = r'I:/Radiotherapy/Cervix/Paper/Result/Quantitative/final/PerMetric_Stats_Excel/Metrics_Summary_Stats.xlsx'
+os.makedirs(os.path.dirname(SAVE_PATH), exist_ok=True)
+
+model_names = [m for m, _ in excel_files_seg]
+baselines   = [m for m in model_names if m != REFERENCE_MODEL]
+classes     = [c.upper() for c in class_list]
+
+# =============================================================================
+# 2. DATA LOADING  (identical logic to original)
+# =============================================================================
+
+def load_segmentation(excel_files, metrics, class_list):
+    all_data = []
+    for name, path in excel_files:
+        df = pd.concat(pd.read_excel(path, sheet_name=None), ignore_index=True)
+        for m in metrics:
+            if m in df.columns:
+                df[m] = pd.to_numeric(df[m], errors="coerce")
+        df["Class_Name"] = df["Class_Name"].astype(str).str.upper().str.strip()
+        df = df[~df["Class_Name"].isin(["BACKGROUND", "NAN", "NONE", "", "0"])]
+        df = df[df["Class_Name"].isin([c.upper() for c in class_list])]
+        df["Model"] = name
+        cols = ["Filename", "Class_Name", "Model"] + \
+               [m for m in metrics if m in df.columns]
+        all_data.append(df[cols])
+    return pd.concat(all_data, ignore_index=True)
+
+
+def load_boundary(excel_files, metrics, class_list):
+    all_data = []
+    for name, path in excel_files:
+        df = pd.read_excel(path, sheet_name="Detailed_Per_Instance")
+        file_rows = []
+        for cls in class_list:
+            present = f"{cls}_Present_In_GT"
+            gt_vol  = f"{cls}_GT_Volume"
+            if present in df.columns:
+                sub = df[df[present] == True].copy()
+            elif gt_vol in df.columns:
+                sub = df[df[gt_vol] > 0].copy()
+            else:
+                sub = df.copy()
+            if sub.empty:
+                continue
+            cls_cols  = {"Filename": sub["Filename"].values}
+            any_found = False
+            for m in metrics:
+                col = f"{cls}_{m}"
+                if col not in df.columns:
+                    cls_cols[m] = np.nan
+                    continue
+                vals = pd.to_numeric(sub[col], errors="coerce").values
+                vals = np.where(np.isfinite(vals), vals, np.nan)
+                cls_cols[m] = vals
+                any_found   = True
+            if not any_found:
+                continue
+            tmp = pd.DataFrame(cls_cols)
+            tmp["Class_Name"] = cls.upper().strip()
+            tmp["Model"]      = name
+            tmp = tmp.dropna(subset=metrics, how="all")
+            file_rows.append(tmp)
+        if file_rows:
+            all_data.append(pd.concat(file_rows, ignore_index=True))
+    if not all_data:
+        raise ValueError("No boundary data loaded.")
+    return pd.concat(all_data, ignore_index=True)
+
+
+print("Loading segmentation data …")
+df_seg = load_segmentation(excel_files_seg, SEG_METRICS, class_list)
+print("Loading boundary data …")
+df_bnd = load_boundary(excel_files_bnd, BND_METRICS, class_list)
+
+df_all = pd.merge(df_seg, df_bnd, on=["Filename", "Class_Name", "Model"], how="outer")
+
+# Derive TPR, TNR, FPR, FNR  (preserve original column values)
+# TPR = Recall, TNR = Specificity (direct copies)
+# FPR = 1 - Specificity, FNR = 1 - Recall
+for col_src, col_dst in [("Recall", "TPR"), ("Specificity", "TNR")]:
+    if col_src in df_all.columns:
+        df_all[col_dst] = df_all[col_src]
+
+if "Specificity" in df_all.columns:
+    df_all["FPR"] = 1.0 - pd.to_numeric(df_all["Specificity"], errors="coerce")
+if "Recall" in df_all.columns:
+    df_all["FNR"] = 1.0 - pd.to_numeric(df_all["Recall"], errors="coerce")
+
+print(f"Data loaded. Patients: {df_all['Filename'].nunique()}")
+
+# =============================================================================
+# 3. STATISTICAL HELPERS  (identical to original)
+# =============================================================================
+
+def paired_hedges_g(diff):
+    diff = np.array(diff)
+    n = len(diff)
+    if n < 2: return np.nan
+    d = diff.mean() / (diff.std(ddof=1) + 1e-12)
+    return d * (1 - 3 / (4 * (n - 1) - 1))
+
+
+def bootstrap_g_ci(diff, n_boot=N_BOOT, seed=42):
+    diff = np.array(diff)
+    n = len(diff)
+    if n < 3: return np.nan, np.nan
+    rng  = np.random.default_rng(seed)
+    boot = np.array([paired_hedges_g(diff[rng.integers(0, n, n)]) for _ in range(n_boot)])
+    return float(np.nanpercentile(boot, 2.5)), float(np.nanpercentile(boot, 97.5))
+
+
+def paired_wilcoxon(x_ref, x_bsl):
+    diff = np.array(x_ref) - np.array(x_bsl)
+    if len(diff) < 3 or np.all(diff == 0): return np.nan
+    try:
+        _, p = wilcoxon(x_ref, x_bsl, zero_method="pratt")
+        return p
+    except Exception:
+        return np.nan
+
+
+def cohens_d_paired(x_ref, x_bsl):
+    """Paired Cohen's d = mean(diff) / std(diff, ddof=1)"""
+    diff = np.array(x_ref) - np.array(x_bsl)
+    n = len(diff)
+    if n < 2: return np.nan
+    return diff.mean() / (diff.std(ddof=1) + 1e-12)
+
+
+def effect_size_label(g):
+    """Standard Cohen thresholds for |g| or |d|"""
+    if np.isnan(g): return "n/a"
+    ag = abs(g)
+    if ag < 0.2:  return "Negligible"
+    if ag < 0.5:  return "Small"
+    if ag < 0.8:  return "Medium"
+    return "Large"
+
+
+def p_stars(p):
+    if np.isnan(p): return ""
+    if p < 0.0001: return "****"
+    if p < 0.001:  return "***"
+    if p < 0.01:   return "**"
+    if p < 0.05:   return "*"
+    return "ns"
+
+
+def format_p(p):
+    if np.isnan(p): return "n/a"
+    if p < 0.0001:  return "< 0.0001"
+    return f"{p:.4f}"
+
+
+# =============================================================================
+# 4. COMPUTE ALL STATISTICS
+# =============================================================================
+
+def get_paired_arrays(df_all, metric, cls, ref_model, bsl_model):
+    """Return aligned (ref_arr, bsl_arr) dropping rows where either is NaN."""
+    ref_sub = df_all[(df_all["Model"] == ref_model) &
+                     (df_all["Class_Name"] == cls)][["Filename", metric]].dropna()
+    bsl_sub = df_all[(df_all["Model"] == bsl_model) &
+                     (df_all["Class_Name"] == cls)][["Filename", metric]].dropna()
+    merged = pd.merge(ref_sub.rename(columns={metric: "ref"}),
+                      bsl_sub.rename(columns={metric: "bsl"}),
+                      on="Filename").dropna()
+    merged = merged[np.isfinite(merged["ref"]) & np.isfinite(merged["bsl"])]
+    return merged["ref"].values, merged["bsl"].values
+
+
+# Build master results dict:
+# results[metric][cls][baseline] = {mean, median, sd, p, stars, d, g, g_lo, g_hi, effect}
+# results[metric][cls][model]    = {mean, median, sd}   ← summary stats per model
+
+print("Computing statistics …")
+results = {}
+for metric in ALL_METRICS:
+    if metric not in df_all.columns:
+        print(f"  Skipping {metric} — not in data")
+        continue
+
+    results[metric] = {}
+    lower_b = metric in LOWER_IS_BETTER
+
+    for cls in classes:
+        results[metric][cls] = {}
+
+        # Summary stats for every model
+        for model in model_names:
+            arr = df_all[(df_all["Model"] == model) &
+                         (df_all["Class_Name"] == cls)][metric].dropna().values
+            arr = arr[np.isfinite(arr)].astype(float)
+            results[metric][cls][model] = {
+                "mean":   float(np.mean(arr))   if len(arr) else np.nan,
+                "median": float(np.median(arr)) if len(arr) else np.nan,
+                "sd":     float(np.std(arr, ddof=1)) if len(arr) > 1 else np.nan,
+                "n":      len(arr),
+            }
+
+        # Pairwise stats: BAT-RM vs each baseline
+        for bsl in baselines:
+            ref_arr, bsl_arr = get_paired_arrays(df_all, metric, cls,
+                                                  REFERENCE_MODEL, bsl)
+            if len(ref_arr) < 3:
+                results[metric][cls][f"vs_{bsl}"] = {k: np.nan for k in
+                    ["p", "stars", "d", "g", "g_lo", "g_hi", "effect", "n_pairs"]}
+                results[metric][cls][f"vs_{bsl}"]["stars"] = "n/a"
+                results[metric][cls][f"vs_{bsl}"]["effect"] = "n/a"
+                continue
+
+            p     = paired_wilcoxon(ref_arr, bsl_arr)
+            d     = cohens_d_paired(ref_arr, bsl_arr)
+            diff  = ref_arr - bsl_arr
+            if lower_b: diff = -diff          # flip sign so positive = reference better
+            g     = paired_hedges_g(diff)
+            g_lo, g_hi = bootstrap_g_ci(diff)
+
+            results[metric][cls][f"vs_{bsl}"] = {
+                "n_pairs": len(ref_arr),
+                "p":       p,
+                "stars":   p_stars(p),
+                "d":       d,
+                "g":       g,
+                "g_lo":    g_lo,
+                "g_hi":    g_hi,
+                "effect":  effect_size_label(g),
+            }
+
+print("Statistics computed.\n")
+
+# =============================================================================
+# 5. EXCEL FORMATTING HELPERS
+# =============================================================================
+
+def thin_border():
+    s = Side(style="thin", color="CCCCCC")
+    return Border(left=s, right=s, top=s, bottom=s)
+
+def header_style(cell, bg="1F4E79"):
+    cell.font      = Font(bold=True, color="FFFFFF", size=9, name="Arial")
+    cell.fill      = PatternFill("solid", fgColor=bg)
+    cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    cell.border    = thin_border()
+
+def subheader_style(cell, bg="2E75B6"):
+    cell.font      = Font(bold=True, color="FFFFFF", size=8, name="Arial")
+    cell.fill      = PatternFill("solid", fgColor=bg)
+    cell.alignment = Alignment(horizontal="center", vertical="center")
+    cell.border    = thin_border()
+
+def data_style(cell, bg="FFFFFF", bold=False):
+    cell.font      = Font(bold=bold, size=8, name="Arial")
+    cell.fill      = PatternFill("solid", fgColor=bg)
+    cell.alignment = Alignment(horizontal="center", vertical="center")
+    cell.border    = thin_border()
+
+def class_label_style(cell):
+    cell.font      = Font(bold=True, size=8, name="Arial", color="1F4E79")
+    cell.fill      = PatternFill("solid", fgColor="D9E2F3")
+    cell.alignment = Alignment(horizontal="left", vertical="center")
+    cell.border    = thin_border()
+
+def sig_fill_color(stars):
+    if stars in ("****", "***"): return "D5E8D4"   # green
+    if stars in ("**", "*"):     return "FFF2CC"   # yellow
+    if stars == "ns":            return "F8F8F8"   # light grey
+    return "FFFFFF"
+
+ROW_ALTERNATES = ["EBF3FB", "FFFFFF"]
+
+# =============================================================================
+# 6. BUILD EXCEL WORKBOOK
+# =============================================================================
+
+wb = Workbook()
+wb.remove(wb.active)   # remove default blank sheet
+
+# Model colour map for header tinting
+MODEL_BG = {
+    "BAT-RM":    "005F8A",   # dark blue
+    "nnUNet":    "007A70",   # teal
+    "SegMamba":  "B85C00",   # orange
+    "TransUNet": "8B1A0A",   # red
+    "UNETR":     "6A1E6A",   # purple
+}
+
+for metric in ALL_METRICS:
+    if metric not in results:
+        continue
+
+    lower_b   = metric in LOWER_IS_BETTER
+    direction = "↓ lower = better" if lower_b else "↑ higher = better"
+
+    # ------------------------------------------------------------------
+    # SHEET A: <Metric>  — summary (mean, median, SD per model per class)
+    # ------------------------------------------------------------------
+    ws_sum = wb.create_sheet(title=metric[:31])
+
+    # Title row
+    title_text = f"{metric}  ({direction})  |  Summary: Mean, Median, SD per Model per Class"
+    ws_sum.merge_cells(start_row=1, start_column=1,
+                       end_row=1,   end_column=1 + len(model_names) * 3)
+    title_cell = ws_sum.cell(row=1, column=1, value=title_text)
+    title_cell.font      = Font(bold=True, size=10, name="Arial", color="1F4E79")
+    title_cell.alignment = Alignment(horizontal="left", vertical="center")
+    title_cell.fill      = PatternFill("solid", fgColor="D9E2F3")
+
+    # Model group headers (row 2)  — spans 3 columns per model
+    ws_sum.cell(row=2, column=1, value="Class")
+    header_style(ws_sum.cell(row=2, column=1), bg="1F4E79")
+
+    col = 2
+    for model in model_names:
+        ws_sum.merge_cells(start_row=2, start_column=col,
+                           end_row=2,   end_column=col + 2)
+        c = ws_sum.cell(row=2, column=col, value=model)
+        header_style(c, bg=MODEL_BG.get(model, "1F4E79"))
+        col += 3
+
+    # Sub-headers: Mean / Median / SD  (row 3)
+    ws_sum.cell(row=3, column=1, value="Class")
+    subheader_style(ws_sum.cell(row=3, column=1))
+
+    col = 2
+    for model in model_names:
+        for lbl in ["Mean", "Median", "SD"]:
+            c = ws_sum.cell(row=3, column=col, value=lbl)
+            subheader_style(c, bg=MODEL_BG.get(model, "2E75B6"))
+            col += 1
+
+    # Data rows
+    for ri, cls in enumerate(classes):
+        row_idx = ri + 4
+        bg      = ROW_ALTERNATES[ri % 2]
+
+        c = ws_sum.cell(row=row_idx, column=1,
+                        value=CLASS_LABELS.get(cls, cls))
+        class_label_style(c)
+
+        col = 2
+        for model in model_names:
+            st   = results[metric][cls].get(model, {})
+            mean = st.get("mean",   np.nan)
+            med  = st.get("median", np.nan)
+            sd   = st.get("sd",     np.nan)
+
+            for val in [mean, med, sd]:
+                c = ws_sum.cell(row=row_idx, column=col,
+                                value=round(val, 4) if not np.isnan(val) else "—")
+                data_style(c, bg=bg)
+                col += 1
+
+    # Column widths
+    ws_sum.column_dimensions["A"].width = 14
+    for col_i in range(2, 2 + len(model_names) * 3):
+        ws_sum.column_dimensions[get_column_letter(col_i)].width = 10
+    ws_sum.row_dimensions[1].height = 22
+    ws_sum.row_dimensions[2].height = 20
+    ws_sum.row_dimensions[3].height = 16
+
+    # ------------------------------------------------------------------
+    # SHEET B: <Metric>_Stats  — BAT-RM vs each baseline
+    # ------------------------------------------------------------------
+    stat_title = f"{metric[:25]}_Stats"
+    ws_sta = wb.create_sheet(title=stat_title[:31])
+
+    # Columns per baseline: N pairs | p-value | Stars | Cohen's d | Hedges' g | g 95% CI | Effect Size
+    STAT_COLS  = ["N pairs", "p-value", "Stars", "Cohen's d", "Hedges' g",
+                  "g 95% CI", "Effect Size"]
+    N_STAT = len(STAT_COLS)   # 7
+
+    total_cols = 1 + len(baselines) * N_STAT
+
+    # Title
+    ws_sta.merge_cells(start_row=1, start_column=1,
+                       end_row=1,   end_column=total_cols)
+    t2 = ws_sta.cell(row=1, column=1,
+                     value=f"{metric}  ({direction})  |  "
+                           f"Statistical Analysis: {REFERENCE_MODEL} vs Baselines  |  "
+                           f"Paired Wilcoxon + Hedges' g [95% BCa CI]")
+    t2.font      = Font(bold=True, size=10, name="Arial", color="1F4E79")
+    t2.alignment = Alignment(horizontal="left", vertical="center")
+    t2.fill      = PatternFill("solid", fgColor="D9E2F3")
+
+    # Baseline group headers (row 2)
+    ws_sta.cell(row=2, column=1, value="Class")
+    header_style(ws_sta.cell(row=2, column=1), bg="1F4E79")
+
+    col = 2
+    for bsl in baselines:
+        ws_sta.merge_cells(start_row=2, start_column=col,
+                           end_row=2,   end_column=col + N_STAT - 1)
+        c = ws_sta.cell(row=2, column=col,
+                        value=f"{REFERENCE_MODEL} vs {bsl}")
+        header_style(c, bg=MODEL_BG.get(bsl, "1F4E79"))
+        col += N_STAT
+
+    # Sub-headers (row 3)
+    ws_sta.cell(row=3, column=1, value="Class")
+    subheader_style(ws_sta.cell(row=3, column=1))
+
+    col = 2
+    for bsl in baselines:
+        for lbl in STAT_COLS:
+            c = ws_sta.cell(row=3, column=col, value=lbl)
+            subheader_style(c, bg=MODEL_BG.get(bsl, "2E75B6"))
+            col += 1
+
+    # Data rows
+    for ri, cls in enumerate(classes):
+        row_idx = ri + 4
+        bg_alt  = ROW_ALTERNATES[ri % 2]
+
+        c = ws_sta.cell(row=row_idx, column=1,
+                        value=CLASS_LABELS.get(cls, cls))
+        class_label_style(c)
+
+        col = 2
+        for bsl in baselines:
+            key = f"vs_{bsl}"
+            st  = results[metric][cls].get(key, {})
+
+            n_p    = st.get("n_pairs", np.nan)
+            p_val  = st.get("p",       np.nan)
+            stars  = st.get("stars",   "n/a")
+            d_val  = st.get("d",       np.nan)
+            g_val  = st.get("g",       np.nan)
+            g_lo   = st.get("g_lo",    np.nan)
+            g_hi   = st.get("g_hi",    np.nan)
+            effect = st.get("effect",  "n/a")
+
+            ci_str = (f"[{g_lo:.3f}, {g_hi:.3f}]"
+                      if not (np.isnan(g_lo) or np.isnan(g_hi)) else "n/a")
+
+            sig_bg = sig_fill_color(stars)
+
+            values = [
+                int(n_p) if not (isinstance(n_p, float) and np.isnan(n_p)) else "—",
+                format_p(p_val),
+                stars,
+                round(d_val, 4) if not np.isnan(d_val) else "—",
+                round(g_val, 4) if not np.isnan(g_val) else "—",
+                ci_str,
+                effect,
+            ]
+
+            for vi, val in enumerate(values):
+                c = ws_sta.cell(row=row_idx, column=col, value=val)
+                # Stars column gets significance colour; others get alternating
+                use_bg = sig_bg if vi == 2 else bg_alt
+                data_style(c, bg=use_bg,
+                           bold=(vi == 2 and stars not in ("ns", "n/a", "")))
+                col += 1
+
+    # Column widths
+    ws_sta.column_dimensions["A"].width = 14
+    col = 2
+    col_widths = [8, 10, 7, 10, 10, 16, 12]
+    for bsl in baselines:
+        for w in col_widths:
+            ws_sta.column_dimensions[get_column_letter(col)].width = w
+            col += 1
+
+    ws_sta.row_dimensions[1].height = 22
+    ws_sta.row_dimensions[2].height = 20
+    ws_sta.row_dimensions[3].height = 16
+
+    print(f"  Sheets created: {metric}  |  {stat_title}")
+
+# =============================================================================
+# 7. SAVE
+# =============================================================================
+
+wb.save(SAVE_PATH)
+print(f"\nExcel saved → {SAVE_PATH}")
+print(f"Total sheets: {len(wb.sheetnames)}")    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# =============================================================================
+# METRICS SUMMARY + STATISTICAL ANALYSIS EXCEL GENERATOR
+# Two sheets per metric: <Metric> (summary) and <Metric>_Stats (comparisons)
+# Reference: BAT-RM vs all baselines
+# Stats: Paired Wilcoxon, Cohen's d, Hedges' g, Effect Size
+# =============================================================================
+
+import pandas as pd
+import numpy as np
+from scipy.stats import wilcoxon
+import os
+import warnings
+warnings.filterwarnings("ignore")
+
+from openpyxl import Workbook
+from openpyxl.styles import (Font, PatternFill, Alignment, Border, Side,
+                              GradientFill)
+from openpyxl.utils import get_column_letter
+
+# =============================================================================
+# 1. CONFIGURATION  (identical to original script)
+# =============================================================================
+
+REFERENCE_MODEL = "BAT-RM"
+
+excel_files_seg = [
+    ("BAT-RM",    r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/200 Epochs/segmentation_metrics_enhanced_200_epoch_enhanced.xlsx'),
+    ("nnUNet",    r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/134 epochs/segmentation_metrics_detailed_epoch_134_generated.xlsx'),
+    ("SegMamba",  r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/UNET3+_segmentation_metrics_detailed_epoch_200_generated.xlsx'),
+    ("TransUNet", r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/vanilla_unet_segmentation_metrics_detailed_epoch_200_generated.xlsx'),
+    ("UNETR",     r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/nnUNet_256/Segmentation_Cervix_small_Axial_axis_pytorch_detailed_metrics_Generated.xlsx'),
+]
+
+excel_files_bnd = [
+    ("BAT-RM",    r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/200 Epochs/boundary_metrics_epoch_200_enhanced_v5.xlsx'),
+    ("nnUNet",    r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/UNET_BM/134 epochs/boundary_metrics_epoch_134_generated.xlsx'),
+    ("SegMamba",  r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/UNET3+_boundary_metrics_epoch_200_generated.xlsx'),
+    ("TransUNet", r'I:/Radiotherapy/Cervix/models/models/Shahrukh/axial-20260420T031615Z-3-001/axial/vanilla_unet_boundary_metrics_epoch_200_generated.xlsx'),
+    ("UNETR",     r'I:/Radiotherapy/Cervix/Paper/code/Trained Models/Small/nnUNet_256/boundary_metrics_nnUNet_100_epochs_generated.xlsx'),
+]
+
+SEG_METRICS  = ["Dice", "IoU", "Recall", "Specificity"]
+BND_METRICS  = ["HD95", "ASD", "NSD", "HD", "RAVD"]
+DER_METRICS  = ["TPR", "TNR", "FPR", "FNR"]   # derived
+ALL_METRICS  = SEG_METRICS + BND_METRICS + DER_METRICS
+
+LOWER_IS_BETTER = {"HD95", "ASD", "HD", "RVD", "RAVD", "FPR", "FNR"}
+
+class_list = [
+    "BODY", "URINARY BLADDER", "SMALL BOWEL",
+    "RECTUM", "FEMORAL HEAD", "GTV", "CTV",
+]
+CLASS_LABELS = {
+    "BODY":             "Body",
+    "URINARY BLADDER":  "Bladder",
+    "SMALL BOWEL":      "Sm. Bowel",
+    "RECTUM":           "Rectum",
+    "FEMORAL HEAD":     "Fem. Head",
+    "GTV":              "GTV",
+    "CTV":              "CTV",
+}
+
+N_BOOT = 1000
+SAVE_PATH = r'I:/Radiotherapy/Cervix/Paper/Result/Quantitative/final/PerMetric_Stats_Excel/Metrics_Summary_Stats_updated.xlsx'
+os.makedirs(os.path.dirname(SAVE_PATH), exist_ok=True)
+
+model_names = [m for m, _ in excel_files_seg]
+baselines   = [m for m in model_names if m != REFERENCE_MODEL]
+classes     = [c.upper() for c in class_list]
+
+# =============================================================================
+# 2. DATA LOADING  (identical logic to original)
+# =============================================================================
+
+def load_segmentation(excel_files, metrics, class_list):
+    all_data = []
+    for name, path in excel_files:
+        df = pd.concat(pd.read_excel(path, sheet_name=None), ignore_index=True)
+        for m in metrics:
+            if m in df.columns:
+                df[m] = pd.to_numeric(df[m], errors="coerce")
+        df["Class_Name"] = df["Class_Name"].astype(str).str.upper().str.strip()
+        df = df[~df["Class_Name"].isin(["BACKGROUND", "NAN", "NONE", "", "0"])]
+        df = df[df["Class_Name"].isin([c.upper() for c in class_list])]
+        df["Model"] = name
+        cols = ["Filename", "Class_Name", "Model"] + \
+               [m for m in metrics if m in df.columns]
+        all_data.append(df[cols])
+    return pd.concat(all_data, ignore_index=True)
+
+
+def load_boundary(excel_files, metrics, class_list):
+    all_data = []
+    for name, path in excel_files:
+        df = pd.read_excel(path, sheet_name="Detailed_Per_Instance")
+        file_rows = []
+        for cls in class_list:
+            present = f"{cls}_Present_In_GT"
+            gt_vol  = f"{cls}_GT_Volume"
+            if present in df.columns:
+                sub = df[df[present] == True].copy()
+            elif gt_vol in df.columns:
+                sub = df[df[gt_vol] > 0].copy()
+            else:
+                sub = df.copy()
+            if sub.empty:
+                continue
+            cls_cols  = {"Filename": sub["Filename"].values}
+            any_found = False
+            for m in metrics:
+                col = f"{cls}_{m}"
+                if col not in df.columns:
+                    cls_cols[m] = np.nan
+                    continue
+                vals = pd.to_numeric(sub[col], errors="coerce").values
+                vals = np.where(np.isfinite(vals), vals, np.nan)
+                cls_cols[m] = vals
+                any_found   = True
+            if not any_found:
+                continue
+            tmp = pd.DataFrame(cls_cols)
+            tmp["Class_Name"] = cls.upper().strip()
+            tmp["Model"]      = name
+            tmp = tmp.dropna(subset=metrics, how="all")
+            file_rows.append(tmp)
+        if file_rows:
+            all_data.append(pd.concat(file_rows, ignore_index=True))
+    if not all_data:
+        raise ValueError("No boundary data loaded.")
+    return pd.concat(all_data, ignore_index=True)
+
+
+print("Loading segmentation data …")
+df_seg = load_segmentation(excel_files_seg, SEG_METRICS, class_list)
+print("Loading boundary data …")
+df_bnd = load_boundary(excel_files_bnd, BND_METRICS, class_list)
+
+df_all = pd.merge(df_seg, df_bnd, on=["Filename", "Class_Name", "Model"], how="outer")
+
+# Derive TPR, TNR, FPR, FNR  (preserve original column values)
+# TPR = Recall, TNR = Specificity (direct copies)
+# FPR = 1 - Specificity, FNR = 1 - Recall
+for col_src, col_dst in [("Recall", "TPR"), ("Specificity", "TNR")]:
+    if col_src in df_all.columns:
+        df_all[col_dst] = df_all[col_src]
+
+if "Specificity" in df_all.columns:
+    df_all["FPR"] = 1.0 - pd.to_numeric(df_all["Specificity"], errors="coerce")
+if "Recall" in df_all.columns:
+    df_all["FNR"] = 1.0 - pd.to_numeric(df_all["Recall"], errors="coerce")
+
+print(f"Data loaded. Patients: {df_all['Filename'].nunique()}")
+
+# =============================================================================
+# 3. STATISTICAL HELPERS  (identical to original)
+# =============================================================================
+
+def paired_hedges_g(diff):
+    diff = np.array(diff)
+    n = len(diff)
+    if n < 2: return np.nan
+    d = diff.mean() / (diff.std(ddof=1) + 1e-12)
+    return d * (1 - 3 / (4 * (n - 1) - 1))
+
+
+def bootstrap_g_ci(diff, n_boot=N_BOOT, seed=42):
+    diff = np.array(diff)
+    n = len(diff)
+    if n < 3: return np.nan, np.nan
+    rng  = np.random.default_rng(seed)
+    boot = np.array([paired_hedges_g(diff[rng.integers(0, n, n)]) for _ in range(n_boot)])
+    return float(np.nanpercentile(boot, 2.5)), float(np.nanpercentile(boot, 97.5))
+
+
+def paired_wilcoxon(x_ref, x_bsl):
+    diff = np.array(x_ref) - np.array(x_bsl)
+    if len(diff) < 3 or np.all(diff == 0): return np.nan
+    try:
+        _, p = wilcoxon(x_ref, x_bsl, zero_method="pratt")
+        return p
+    except Exception:
+        return np.nan
+
+
+def cohens_d_paired(x_ref, x_bsl):
+    """Paired Cohen's d = mean(diff) / std(diff, ddof=1)"""
+    diff = np.array(x_ref) - np.array(x_bsl)
+    n = len(diff)
+    if n < 2: return np.nan
+    return diff.mean() / (diff.std(ddof=1) + 1e-12)
+
+
+def effect_size_label(g):
+    """Standard Cohen thresholds for |g| or |d|"""
+    if np.isnan(g): return "n/a"
+    ag = abs(g)
+    if ag < 0.2:  return "Negligible"
+    if ag < 0.5:  return "Small"
+    if ag < 0.8:  return "Medium"
+    return "Large"
+
+
+def p_stars(p):
+    if np.isnan(p): return ""
+    if p < 0.0001: return "****"
+    if p < 0.001:  return "***"
+    if p < 0.01:   return "**"
+    if p < 0.05:   return "*"
+    return "ns"
+
+
+def format_p(p):
+    if np.isnan(p): return "n/a"
+    if p < 0.0001:  return "< 0.0001"
+    return f"{p:.4f}"
+
+
+# =============================================================================
+# 4. COMPUTE ALL STATISTICS
+# =============================================================================
+
+def get_paired_arrays(df_all, metric, cls, ref_model, bsl_model):
+    """Return aligned (ref_arr, bsl_arr) dropping rows where either is NaN."""
+    ref_sub = df_all[(df_all["Model"] == ref_model) &
+                     (df_all["Class_Name"] == cls)][["Filename", metric]].dropna()
+    bsl_sub = df_all[(df_all["Model"] == bsl_model) &
+                     (df_all["Class_Name"] == cls)][["Filename", metric]].dropna()
+    merged = pd.merge(ref_sub.rename(columns={metric: "ref"}),
+                      bsl_sub.rename(columns={metric: "bsl"}),
+                      on="Filename").dropna()
+    merged = merged[np.isfinite(merged["ref"]) & np.isfinite(merged["bsl"])]
+    return merged["ref"].values, merged["bsl"].values
+
+
+# Build master results dict:
+# results[metric][cls][baseline] = {mean, median, sd, p, stars, d, g, g_lo, g_hi, effect}
+# results[metric][cls][model]    = {mean, median, sd}   ← summary stats per model
+
+print("Computing statistics …")
+results = {}
+for metric in ALL_METRICS:
+    if metric not in df_all.columns:
+        print(f"  Skipping {metric} — not in data")
+        continue
+
+    results[metric] = {}
+    lower_b = metric in LOWER_IS_BETTER
+
+    for cls in classes:
+        results[metric][cls] = {}
+
+        # Summary stats for every model
+        for model in model_names:
+            arr = df_all[(df_all["Model"] == model) &
+                         (df_all["Class_Name"] == cls)][metric].dropna().values
+            arr = arr[np.isfinite(arr)].astype(float)
+            n    = len(arr)
+            mean = float(np.mean(arr))             if n     else np.nan
+            sd   = float(np.std(arr, ddof=1))      if n > 1 else np.nan
+            # 95% CI of the mean:  mean ± 1.96 × (SD / √n)
+            sem     = sd / np.sqrt(n)              if n > 1 else np.nan
+            ci_lo   = mean - 1.96 * sem            if not np.isnan(sem) else np.nan
+            ci_hi   = mean + 1.96 * sem            if not np.isnan(sem) else np.nan
+            results[metric][cls][model] = {
+                "mean":   mean,
+                "median": float(np.median(arr)) if n else np.nan,
+                "sd":     sd,
+                "ci_lo":  ci_lo,
+                "ci_hi":  ci_hi,
+                "n":      n,
+            }
+
+        # Pairwise stats: BAT-RM vs each baseline
+        for bsl in baselines:
+            ref_arr, bsl_arr = get_paired_arrays(df_all, metric, cls,
+                                                  REFERENCE_MODEL, bsl)
+            if len(ref_arr) < 3:
+                results[metric][cls][f"vs_{bsl}"] = {k: np.nan for k in
+                    ["p", "stars", "d", "g", "g_lo", "g_hi", "effect", "n_pairs"]}
+                results[metric][cls][f"vs_{bsl}"]["stars"] = "n/a"
+                results[metric][cls][f"vs_{bsl}"]["effect"] = "n/a"
+                continue
+
+            p     = paired_wilcoxon(ref_arr, bsl_arr)
+            d     = cohens_d_paired(ref_arr, bsl_arr)
+            diff  = ref_arr - bsl_arr
+            if lower_b: diff = -diff          # flip sign so positive = reference better
+            g     = paired_hedges_g(diff)
+            g_lo, g_hi = bootstrap_g_ci(diff)
+
+            results[metric][cls][f"vs_{bsl}"] = {
+                "n_pairs": len(ref_arr),
+                "p":       p,
+                "stars":   p_stars(p),
+                "d":       d,
+                "g":       g,
+                "g_lo":    g_lo,
+                "g_hi":    g_hi,
+                "effect":  effect_size_label(g),
+            }
+
+print("Statistics computed.\n")
+
+# =============================================================================
+# 5. EXCEL FORMATTING HELPERS
+# =============================================================================
+
+def thin_border():
+    s = Side(style="thin", color="CCCCCC")
+    return Border(left=s, right=s, top=s, bottom=s)
+
+def header_style(cell, bg="1F4E79"):
+    cell.font      = Font(bold=True, color="FFFFFF", size=9, name="Arial")
+    cell.fill      = PatternFill("solid", fgColor=bg)
+    cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    cell.border    = thin_border()
+
+def subheader_style(cell, bg="2E75B6"):
+    cell.font      = Font(bold=True, color="FFFFFF", size=8, name="Arial")
+    cell.fill      = PatternFill("solid", fgColor=bg)
+    cell.alignment = Alignment(horizontal="center", vertical="center")
+    cell.border    = thin_border()
+
+def data_style(cell, bg="FFFFFF", bold=False):
+    cell.font      = Font(bold=bold, size=8, name="Arial")
+    cell.fill      = PatternFill("solid", fgColor=bg)
+    cell.alignment = Alignment(horizontal="center", vertical="center")
+    cell.border    = thin_border()
+
+def class_label_style(cell):
+    cell.font      = Font(bold=True, size=8, name="Arial", color="1F4E79")
+    cell.fill      = PatternFill("solid", fgColor="D9E2F3")
+    cell.alignment = Alignment(horizontal="left", vertical="center")
+    cell.border    = thin_border()
+
+def sig_fill_color(stars):
+    if stars in ("****", "***"): return "D5E8D4"   # green
+    if stars in ("**", "*"):     return "FFF2CC"   # yellow
+    if stars == "ns":            return "F8F8F8"   # light grey
+    return "FFFFFF"
+
+ROW_ALTERNATES = ["EBF3FB", "FFFFFF"]
+
+# =============================================================================
+# 6. BUILD EXCEL WORKBOOK
+# =============================================================================
+
+wb = Workbook()
+wb.remove(wb.active)   # remove default blank sheet
+
+# Model colour map for header tinting
+MODEL_BG = {
+    "BAT-RM":    "005F8A",   # dark blue
+    "nnUNet":    "007A70",   # teal
+    "SegMamba":  "B85C00",   # orange
+    "TransUNet": "8B1A0A",   # red
+    "UNETR":     "6A1E6A",   # purple
+}
+
+for metric in ALL_METRICS:
+    if metric not in results:
+        continue
+
+    lower_b   = metric in LOWER_IS_BETTER
+    direction = "↓ lower = better" if lower_b else "↑ higher = better"
+
+    # ------------------------------------------------------------------
+    # SHEET A: <Metric>  — summary (mean, median, SD per model per class)
+    # ------------------------------------------------------------------
+    ws_sum = wb.create_sheet(title=metric[:31])
+
+    # Title row
+    title_text = f"{metric}  ({direction})  |  Summary: Mean, Median, SD, 95% CI per Model per Class"
+    ws_sum.merge_cells(start_row=1, start_column=1,
+                       end_row=1,   end_column=1 + len(model_names) * 5)
+    title_cell = ws_sum.cell(row=1, column=1, value=title_text)
+    title_cell.font      = Font(bold=True, size=10, name="Arial", color="1F4E79")
+    title_cell.alignment = Alignment(horizontal="left", vertical="center")
+    title_cell.fill      = PatternFill("solid", fgColor="D9E2F3")
+
+    # Model group headers (row 2)  — spans 3 columns per model
+    ws_sum.cell(row=2, column=1, value="Class")
+    header_style(ws_sum.cell(row=2, column=1), bg="1F4E79")
+
+    col = 2
+    for model in model_names:
+        ws_sum.merge_cells(start_row=2, start_column=col,
+                           end_row=2,   end_column=col + 4)
+        c = ws_sum.cell(row=2, column=col, value=model)
+        header_style(c, bg=MODEL_BG.get(model, "1F4E79"))
+        col += 5
+
+    # Sub-headers: Mean / Median / SD / CI Lower / CI Upper  (row 3)
+    ws_sum.cell(row=3, column=1, value="Class")
+    subheader_style(ws_sum.cell(row=3, column=1))
+
+    col = 2
+    for model in model_names:
+        for lbl in ["Mean", "Median", "SD", "CI Lower", "CI Upper"]:
+            c = ws_sum.cell(row=3, column=col, value=lbl)
+            subheader_style(c, bg=MODEL_BG.get(model, "2E75B6"))
+            col += 1
+
+    # Data rows
+    for ri, cls in enumerate(classes):
+        row_idx = ri + 4
+        bg      = ROW_ALTERNATES[ri % 2]
+
+        c = ws_sum.cell(row=row_idx, column=1,
+                        value=CLASS_LABELS.get(cls, cls))
+        class_label_style(c)
+
+        col = 2
+        for model in model_names:
+            st    = results[metric][cls].get(model, {})
+            mean  = st.get("mean",   np.nan)
+            med   = st.get("median", np.nan)
+            sd    = st.get("sd",     np.nan)
+            ci_lo = st.get("ci_lo",  np.nan)
+            ci_hi = st.get("ci_hi",  np.nan)
+
+            for val in [mean, med, sd, ci_lo, ci_hi]:
+                c = ws_sum.cell(row=row_idx, column=col,
+                                value=round(val, 4) if not np.isnan(val) else "—")
+                data_style(c, bg=bg)
+                col += 1
+
+    # Column widths
+    ws_sum.column_dimensions["A"].width = 14
+    for col_i in range(2, 2 + len(model_names) * 5):
+        ws_sum.column_dimensions[get_column_letter(col_i)].width = 10
+    ws_sum.row_dimensions[1].height = 22
+    ws_sum.row_dimensions[2].height = 20
+    ws_sum.row_dimensions[3].height = 16
+
+    # ------------------------------------------------------------------
+    # SHEET B: <Metric>_Stats  — BAT-RM vs each baseline
+    # ------------------------------------------------------------------
+    stat_title = f"{metric[:25]}_Stats"
+    ws_sta = wb.create_sheet(title=stat_title[:31])
+
+    # Columns per baseline: N pairs | p-value | Stars | Cohen's d | Hedges' g | g 95% CI | Effect Size
+    STAT_COLS  = ["N pairs", "p-value", "Stars", "Cohen's d", "Hedges' g",
+                  "g 95% CI", "Effect Size"]
+    N_STAT = len(STAT_COLS)   # 7
+
+    total_cols = 1 + len(baselines) * N_STAT
+
+    # Title
+    ws_sta.merge_cells(start_row=1, start_column=1,
+                       end_row=1,   end_column=total_cols)
+    t2 = ws_sta.cell(row=1, column=1,
+                     value=f"{metric}  ({direction})  |  "
+                           f"Statistical Analysis: {REFERENCE_MODEL} vs Baselines  |  "
+                           f"Paired Wilcoxon + Hedges' g [95% BCa CI]")
+    t2.font      = Font(bold=True, size=10, name="Arial", color="1F4E79")
+    t2.alignment = Alignment(horizontal="left", vertical="center")
+    t2.fill      = PatternFill("solid", fgColor="D9E2F3")
+
+    # Baseline group headers (row 2)
+    ws_sta.cell(row=2, column=1, value="Class")
+    header_style(ws_sta.cell(row=2, column=1), bg="1F4E79")
+
+    col = 2
+    for bsl in baselines:
+        ws_sta.merge_cells(start_row=2, start_column=col,
+                           end_row=2,   end_column=col + N_STAT - 1)
+        c = ws_sta.cell(row=2, column=col,
+                        value=f"{REFERENCE_MODEL} vs {bsl}")
+        header_style(c, bg=MODEL_BG.get(bsl, "1F4E79"))
+        col += N_STAT
+
+    # Sub-headers (row 3)
+    ws_sta.cell(row=3, column=1, value="Class")
+    subheader_style(ws_sta.cell(row=3, column=1))
+
+    col = 2
+    for bsl in baselines:
+        for lbl in STAT_COLS:
+            c = ws_sta.cell(row=3, column=col, value=lbl)
+            subheader_style(c, bg=MODEL_BG.get(bsl, "2E75B6"))
+            col += 1
+
+    # Data rows
+    for ri, cls in enumerate(classes):
+        row_idx = ri + 4
+        bg_alt  = ROW_ALTERNATES[ri % 2]
+
+        c = ws_sta.cell(row=row_idx, column=1,
+                        value=CLASS_LABELS.get(cls, cls))
+        class_label_style(c)
+
+        col = 2
+        for bsl in baselines:
+            key = f"vs_{bsl}"
+            st  = results[metric][cls].get(key, {})
+
+            n_p    = st.get("n_pairs", np.nan)
+            p_val  = st.get("p",       np.nan)
+            stars  = st.get("stars",   "n/a")
+            d_val  = st.get("d",       np.nan)
+            g_val  = st.get("g",       np.nan)
+            g_lo   = st.get("g_lo",    np.nan)
+            g_hi   = st.get("g_hi",    np.nan)
+            effect = st.get("effect",  "n/a")
+
+            ci_str = (f"[{g_lo:.3f}, {g_hi:.3f}]"
+                      if not (np.isnan(g_lo) or np.isnan(g_hi)) else "n/a")
+
+            sig_bg = sig_fill_color(stars)
+
+            values = [
+                int(n_p) if not (isinstance(n_p, float) and np.isnan(n_p)) else "—",
+                format_p(p_val),
+                stars,
+                round(d_val, 4) if not np.isnan(d_val) else "—",
+                round(g_val, 4) if not np.isnan(g_val) else "—",
+                ci_str,
+                effect,
+            ]
+
+            for vi, val in enumerate(values):
+                c = ws_sta.cell(row=row_idx, column=col, value=val)
+                # Stars column gets significance colour; others get alternating
+                use_bg = sig_bg if vi == 2 else bg_alt
+                data_style(c, bg=use_bg,
+                           bold=(vi == 2 and stars not in ("ns", "n/a", "")))
+                col += 1
+
+    # Column widths
+    ws_sta.column_dimensions["A"].width = 14
+    col = 2
+    col_widths = [8, 10, 7, 10, 10, 16, 12]
+    for bsl in baselines:
+        for w in col_widths:
+            ws_sta.column_dimensions[get_column_letter(col)].width = w
+            col += 1
+
+    ws_sta.row_dimensions[1].height = 22
+    ws_sta.row_dimensions[2].height = 20
+    ws_sta.row_dimensions[3].height = 16
+
+    print(f"  Sheets created: {metric}  |  {stat_title}")
+
+# =============================================================================
+# 7. SAVE
+# =============================================================================
+
+wb.save(SAVE_PATH)
+print(f"\nExcel saved → {SAVE_PATH}")
+print(f"Total sheets: {len(wb.sheetnames)}")
