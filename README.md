@@ -131,3 +131,51 @@ BAT-RM is deployed at Bangladesh Medical University through a **production-grade
 ---
 
 ## 📁 Repository Structure
+
+BAT-RM/
+├── figures/
+│ ├── WorkFlow.png
+│ ├── model_architecture.pdf
+│ ├── model_architecture_BAT.pdf
+│ ├── model_architecture_RM.pdf
+│ └── Webview_2.PNG
+├── src/
+│ ├── model.py
+│ ├── train.py
+│ ├── inference.py
+│ └── utils.py
+├── configs/
+│ └── config.yaml
+├── scripts/
+│ ├── preprocess.py
+│ └── evaluate.py
+├── README.md
+└── requirements.txt
+
+
+---
+
+## 🛠️ Requirements
+
+```bash
+# Core dependencies
+- Python >= 3.9
+- PyTorch >= 2.0.0
+- torchvision >= 0.15.0
+- numpy >= 1.21.0
+- scipy >= 1.7.0
+- SimpleITK >= 2.3.0
+- pydicom >= 2.3.0
+- matplotlib >= 3.5.0
+- scikit-image >= 0.19.0
+
+pip install -r requirements.txt
+
+
+@article{ahmed2025batrm,
+  title={BAT-RM: A Boundary-Aware Transformer with Multi-Directional Recurrent Context Module for Clinically Deployed Auto-Contouring in Cervical Cancer Radiotherapy},
+  author={Ahmed, Istiak and Ahmed, Galib and Sanjid, Kazi Shahriar and Hossain, Md. Tanzim and Islam, Md. Anwarul and Khan, Shahrukh and Arian, Md. Ashrif Rahman and Khan, Md. Nishan and Khan, Md. Misbah and Hoque, S M Hasibul and Rista, Rahnuma Shahrin and Rahman, Md Arifur and Hussain, Syed Md. Akram and Sarker, Md. Mostafa Kamal and Uddin, Mohammad Monir},
+  journal={Medical Image Analysis},
+  year={2025},
+  note={Under Review}
+}
