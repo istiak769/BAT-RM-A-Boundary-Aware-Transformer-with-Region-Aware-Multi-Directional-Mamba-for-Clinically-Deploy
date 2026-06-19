@@ -35,7 +35,7 @@ Cervical cancer is a leading cause of cancer death in women worldwide, with over
 The end-to-end pipeline spans multi-centre data collection, preprocessing, BAT-RM model development, comprehensive evaluation, multi-centre reader study, and clinical deployment.
 
 <p align="center">
-  <img src="figures/workflow.pdf" alt="End-to-end pipeline" width="90%">
+  <img src="figures/workflow.PNG" alt="End-to-end pipeline" width="90%">
 </p>
 
 ### BAT-RM Architecture
@@ -51,7 +51,7 @@ The model integrates three complementary streams within a symmetric encoder-deco
 The BAT branch applies Sobel-derived gradient gating to restrict self-attention to organ boundary regions.
 
 <p align="center">
-  <img src="figures/Model_Architecture_BAT.png" alt="BAT branch" width="70%">
+  <img src="figures/Model_Architecture_BAT.PNG" alt="BAT branch" width="70%">
 </p>
 
 ### Multi-Directional Recurrent Context Module (RM Branch)
@@ -59,7 +59,7 @@ The BAT branch applies Sobel-derived gradient gating to restrict self-attention 
 The RM branch performs four-directional sequential scanning using GRU-based recurrent modules to capture long-range spatial dependencies at linear complexity ($\mathcal{O}(N)$).
 
 <p align="center">
-  <img src="figures/Model_Architecture_RM.png" alt="RM branch" width="70%">
+  <img src="figures/Model_Architecture_RM.PNG" alt="RM branch" width="70%">
 </p>
 
 ---
