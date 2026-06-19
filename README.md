@@ -43,7 +43,7 @@ The end-to-end pipeline spans multi-centre data collection, preprocessing, BAT-R
 The model integrates three complementary streams within a symmetric encoder-decoder backbone: a **Gated Boundary-Aware Transformer (BAT)** branch, a **Multi-Directional Recurrent Context Module (RM)** branch, and a **Boundary-Region Attention Fusion (BRAF)** gate.
 
 <p align="center">
-  <img src="figures/Model_Architecture.png" alt="BAT-RM architecture" width="90%">
+  <img src="figures/Model_Architecture.PNG" alt="BAT-RM architecture" width="90%">
 </p>
 
 ### Gated Boundary-Aware Transformer (BAT) Branch
