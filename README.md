@@ -125,7 +125,7 @@ BAT-RM is deployed at Bangladesh Medical University through a **production-grade
 - 📉 Patient wait time reduced from 1–3 days to 2–3 hours
 
 <p align="center">
-  <img src="figures/Webview 1.PNG" alt="Web application interface" width="90%">
+  <img src="figures/webview 1.PNG" alt="Web application interface" width="90%">
 </p>
 
 ---
