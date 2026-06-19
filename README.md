@@ -5,7 +5,7 @@
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-red.svg)](https://pytorch.org/)
 
-This repository contains the official implementation of **BAT-RM (Boundary-Aware Transformer with Region-Aware Recurrent)** for cervical cancer radiotherapy auto-contouring.
+This repository contains the official implementation of **BAT-RM** for cervical cancer radiotherapy auto-contouring.
 
 > **BAT-RM: A Boundary-Aware Transformer with Multi-Directional Recurrent Context Module for Clinically Deployed Auto-Contouring in Cervical Cancer Radiotherapy**  
 > *Istiak Ahmed, Galib Ahmed, Kazi Shahriar Sanjid, Md. Tanzim Hossain, Md. Anwarul Islam, Shahrukh Khan, Md. Ashrif Rahman Arian, Md. Nishan Khan, Md. Misbah Khan, S M Hasibul Hoque, Rahnuma Shahrin Rista, Md Arifur Rahman, Syed Md. Akram Hussain, Md. Mostafa Kamal Sarker, Mohammad Monir Uddin*  
@@ -16,7 +16,7 @@ This repository contains the official implementation of **BAT-RM (Boundary-Aware
 
 ## 📌 Overview
 
-Cervical cancer is a leading cause of cancer death in women worldwide, with over 85% of cases occurring in low- and middle-income countries where oncologist shortages create radiotherapy planning backlogs of up to three days. BAT-RM is a **clinically deployed** end-to-end auto-contouring system for cervical cancer radiotherapy planning.
+Cervical cancer is the fourth leading cause of cancer death in women worldwide, with over 85% of cases occurring in low- and middle-income countries where oncologist shortages create radiotherapy planning backlogs of up to three days. BAT-RM is a **clinically deployed** end-to-end auto-contouring system for cervical cancer radiotherapy planning.
 
 ### Key Highlights
 
@@ -125,33 +125,34 @@ BAT-RM is deployed at Bangladesh Medical University through a **production-grade
 - 📉 Patient wait time reduced from 1–3 days to 2–3 hours
 
 <p align="center">
-  <img src="figures/webview 1.PNG" alt="Web application interface" width="90%">
+  <img src="figures/Webview_1.png" alt="Web application interface" width="90%">
 </p>
 
 ---
 
 ## 📁 Repository Structure
 
+```
 BAT-RM/
 ├── figures/
-│ ├── WorkFlow.png
-│ ├── model_architecture.pdf
-│ ├── model_architecture_BAT.pdf
-│ ├── model_architecture_RM.pdf
-│ └── Webview_2.PNG
+│   ├── Workflow.png
+│   ├── Model_Architecture.png
+│   ├── Model_Architecture_BAT.png
+│   ├── Model_Architecture_RM.png
+│   └── Webview_1.png
 ├── src/
-│ ├── model.py
-│ ├── train.py
-│ ├── inference.py
-│ └── utils.py
+│   ├── model.py
+│   ├── train.py
+│   ├── inference.py
+│   └── utils.py
 ├── configs/
-│ └── config.yaml
+│   └── config.yaml
 ├── scripts/
-│ ├── preprocess.py
-│ └── evaluate.py
+│   ├── preprocess.py
+│   └── evaluate.py
 ├── README.md
 └── requirements.txt
-
+```
 
 ---
 
@@ -168,10 +169,43 @@ BAT-RM/
 - pydicom >= 2.3.0
 - matplotlib >= 3.5.0
 - scikit-image >= 0.19.0
+```
 
+Install all dependencies:
+
+```bash
 pip install -r requirements.txt
+```
 
+---
 
+## 🔧 Usage
+
+### Training
+
+```bash
+python src/train.py --config configs/config.yaml
+```
+
+### Inference
+
+```bash
+python src/inference.py --input /path/to/dicom/ --output /path/to/rtstruct/
+```
+
+### Evaluation
+
+```bash
+python scripts/evaluate.py --pred /path/to/predictions/ --gt /path/to/ground_truth/
+```
+
+---
+
+## 📝 Citation
+
+If you use this work, please cite:
+
+```bibtex
 @article{ahmed2025batrm,
   title={BAT-RM: A Boundary-Aware Transformer with Multi-Directional Recurrent Context Module for Clinically Deployed Auto-Contouring in Cervical Cancer Radiotherapy},
   author={Ahmed, Istiak and Ahmed, Galib and Sanjid, Kazi Shahriar and Hossain, Md. Tanzim and Islam, Md. Anwarul and Khan, Shahrukh and Arian, Md. Ashrif Rahman and Khan, Md. Nishan and Khan, Md. Misbah and Hoque, S M Hasibul and Rista, Rahnuma Shahrin and Rahman, Md Arifur and Hussain, Syed Md. Akram and Sarker, Md. Mostafa Kamal and Uddin, Mohammad Monir},
@@ -179,3 +213,25 @@ pip install -r requirements.txt
   year={2025},
   note={Under Review}
 }
+```
+
+---
+
+## 📄 License
+
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
+
+---
+
+## 🤝 Contact
+
+For questions, please contact:
+
+- **Mohammad Monir Uddin** — monir.uddin@northsouth.edu
+- **Istiak Ahmed** — istiak.ahmed1@northsouth.edu
+
+---
+
+## 🙏 Acknowledgements
+
+We thank the clinical teams at Bangladesh Medical University, Square Hospital Ltd., and Labaid Hospital for their collaboration in data collection and clinical validation. This work was supported by Big-Matrix Lab, North South University, Bangladesh.
