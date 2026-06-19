@@ -43,7 +43,7 @@ The end-to-end pipeline spans multi-centre data collection, preprocessing, BAT-R
 The model integrates three complementary streams within a symmetric encoder-decoder backbone: a **Gated Boundary-Aware Transformer (BAT)** branch, a **Multi-Directional Recurrent Context Module (RM)** branch, and a **Boundary-Region Attention Fusion (BRAF)** gate.
 
 <p align="center">
-  <img src="figures/Model_Architecture.pdf" alt="BAT-RM architecture" width="90%">
+  <img src="figures/Model_Architecture.png" alt="BAT-RM architecture" width="90%">
 </p>
 
 ### Gated Boundary-Aware Transformer (BAT) Branch
@@ -51,7 +51,7 @@ The model integrates three complementary streams within a symmetric encoder-deco
 The BAT branch applies Sobel-derived gradient gating to restrict self-attention to organ boundary regions.
 
 <p align="center">
-  <img src="figures/Model_Architecture_BAT.pdf" alt="BAT branch" width="70%">
+  <img src="figures/Model_Architecture_BAT.png" alt="BAT branch" width="70%">
 </p>
 
 ### Multi-Directional Recurrent Context Module (RM Branch)
@@ -59,7 +59,7 @@ The BAT branch applies Sobel-derived gradient gating to restrict self-attention 
 The RM branch performs four-directional sequential scanning using GRU-based recurrent modules to capture long-range spatial dependencies at linear complexity ($\mathcal{O}(N)$).
 
 <p align="center">
-  <img src="figures/Model_Architecture_RM.pdf" alt="RM branch" width="70%">
+  <img src="figures/Model_Architecture_RM.png" alt="RM branch" width="70%">
 </p>
 
 ---
