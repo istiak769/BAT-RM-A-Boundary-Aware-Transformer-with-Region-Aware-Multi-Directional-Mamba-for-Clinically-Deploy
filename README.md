@@ -35,7 +35,7 @@ Cervical cancer is a leading cause of cancer death in women worldwide, with over
 The end-to-end pipeline spans multi-centre data collection, preprocessing, BAT-RM model development, comprehensive evaluation, multi-centre reader study, and clinical deployment.
 
 <p align="center">
-  <img src="figures/WorkFlow.png" alt="End-to-end pipeline" width="90%">
+  <img src="figures/WorkFlow.pdf" alt="End-to-end pipeline" width="90%">
 </p>
 
 ### BAT-RM Architecture
