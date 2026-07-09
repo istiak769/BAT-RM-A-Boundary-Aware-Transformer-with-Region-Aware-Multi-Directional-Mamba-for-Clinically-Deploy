@@ -1,4 +1,3 @@
-
 """
 BAT-RM U-Net: Boundary-Aware Transformer and Region-Mamba U-Net
 for OAR Segmentation in Cervical Cancer Radiotherapy
@@ -26,7 +25,6 @@ Key fixes and enhancements over the original draft:
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
 
 # ---------------------------------------------------------------------------
 # Helper: Encoder Block with optional residual connection
@@ -213,51 +211,130 @@ class GatedBATBlock(nn.Module):
         return out, b_hat, gate
 
 
+# # ---------------------------------------------------------------------------
+# #  (RM) Block "Multi-Directional Recurrent Context Module"
+# # ---------------------------------------------------------------------------
+
+# class RegionMambaBlock(nn.Module):
+#     """
+#     Multi-directional SSM block operating at the bottleneck (E5, 32×32).
+
+#     True Mamba requires the `mamba-ssm` package.  We implement a faithful
+#     proxy using bidirectional GRUs — this matches the *inductive bias* of
+#     SSMs (sequential, recurrent, linear-time) and avoids the quadratic cost
+#     of transformers, making it a valid drop-in for ablation and publication.
+
+#     Four cardinal directions are scanned independently and their outputs
+#     are summed, as in the paper (Eq. 12).
+
+#     If you install `mamba-ssm`, swap the GRU lines for:
+#         from mamba_ssm import Mamba
+#         self.ssm_N = Mamba(d_model=in_ch, d_state=16, d_conv=4, expand=2)
+#         ... (one per direction)
+#     """
+
+#     def __init__(self, in_ch: int):
+#         super().__init__()
+#         self.in_ch = in_ch
+#         self.norm = nn.LayerNorm(in_ch)
+
+#         # One GRU per direction; bidirectional=False to match unidirectional scan
+#         self.ssm_N = nn.GRU(in_ch, in_ch, batch_first=True)   # North→South
+#         self.ssm_S = nn.GRU(in_ch, in_ch, batch_first=True)   # South→North
+#         self.ssm_E = nn.GRU(in_ch, in_ch, batch_first=True)   # East→West (row-major L→R)
+#         self.ssm_W = nn.GRU(in_ch, in_ch, batch_first=True)   # West→East (row-major R→L)
+
+#         # SiLU gate before selective scan (paper Eq. 11)
+#         self.in_proj = nn.Linear(in_ch, in_ch)
+#         self.gate_proj = nn.Linear(in_ch, in_ch)
+
+#         self.out_proj = nn.Conv2d(in_ch, in_ch, kernel_size=1, bias=False)
+#         self.post_norm = nn.GroupNorm(num_groups=8, num_channels=in_ch)
+
+#     def _scan(self, ssm: nn.GRU, tokens: torch.Tensor) -> torch.Tensor:
+#         """Run SSM on token sequence; apply SiLU gate."""
+#         gate = F.silu(self.gate_proj(tokens))
+#         out, _ = ssm(self.in_proj(tokens))
+#         return out * gate   # selective scan via multiplicative gating
+
+#     def forward(self, x: torch.Tensor) -> torch.Tensor:
+#         B, C, H, W = x.shape
+#         shortcut = x
+
+#         # Normalise over channel dim
+#         x_norm = self.norm(x.permute(0, 2, 3, 1).reshape(B, H * W, C))
+
+#         # ---- North→South: column-major top→bottom ----
+#         # Reshape to (B, W, H, C) then flatten inner → (B*W, H, C)
+#         ns_tokens = x_norm.reshape(B, H, W, C).permute(0, 2, 1, 3).reshape(B * W, H, C)
+#         ns_out = self._scan(self.ssm_N, ns_tokens)                   # (B*W, H, C)
+#         ns_out = ns_out.reshape(B, W, H, C).permute(0, 2, 1, 3).reshape(B, H * W, C)
+
+#         # ---- South→North: column-major bottom→top ----
+#         sn_tokens = ns_tokens.flip(dims=[1])
+#         sn_out = self._scan(self.ssm_S, sn_tokens).flip(dims=[1])    # (B*W, H, C)
+#         sn_out = sn_out.reshape(B, W, H, C).permute(0, 2, 1, 3).reshape(B, H * W, C)
+
+#         # ---- East→West: row-major left→right ----
+#         ew_tokens = x_norm.reshape(B * H, W, C)
+#         ew_out = self._scan(self.ssm_E, ew_tokens)                   # (B*H, W, C)
+#         ew_out = ew_out.reshape(B, H * W, C)
+
+#         # ---- West→East: row-major right→left ----
+#         we_tokens = ew_tokens.flip(dims=[1])
+#         we_out = self._scan(self.ssm_W, we_tokens).flip(dims=[1])    # (B*H, W, C)
+#         we_out = we_out.reshape(B, H * W, C)
+
+#         # ---- Aggregate (paper Eq. 12: sum over directions) ----
+#         f_rm = (ns_out + sn_out + ew_out + we_out)                   # (B, H*W, C)
+#         f_rm = f_rm.reshape(B, H, W, C).permute(0, 3, 1, 2)         # (B, C, H, W)
+
+#         out = self.post_norm(self.out_proj(f_rm) + shortcut)
+#         return out
+
+
+
+
 # ---------------------------------------------------------------------------
-#  (RM) Block "Multi-Directional Recurrent Context Module"
+# Multi-Directional Mamba Block "Region-Mamba" — GRU replaced with true Mamba SSM
 # ---------------------------------------------------------------------------
+
+from mamba_ssm import Mamba  # requires: pip install mamba-ssm causal-conv1d --no-build-isolation
+
 
 class RegionMambaBlock(nn.Module):
     """
     Multi-directional SSM block operating at the bottleneck (E5, 32×32).
 
-    True Mamba requires the `mamba-ssm` package.  We implement a faithful
-    proxy using bidirectional GRUs — this matches the *inductive bias* of
-    SSMs (sequential, recurrent, linear-time) and avoids the quadratic cost
-    of transformers, making it a valid drop-in for ablation and publication.
-
-    Four cardinal directions are scanned independently and their outputs
-    are summed, as in the paper (Eq. 12).
-
-    If you install `mamba-ssm`, swap the GRU lines for:
-        from mamba_ssm import Mamba
-        self.ssm_N = Mamba(d_model=in_ch, d_state=16, d_conv=4, expand=2)
-        ... (one per direction)
+    Uses true Mamba (selective SSM) per direction, matching the paper's
+    Eq. 12 exactly rather than the GRU proxy. Four cardinal directions
+    (N/S/E/W) are scanned independently and summed.
     """
 
-    def __init__(self, in_ch: int):
+    def __init__(self, in_ch: int, d_state: int = 16, d_conv: int = 4, expand: int = 2):
         super().__init__()
         self.in_ch = in_ch
         self.norm = nn.LayerNorm(in_ch)
 
-        # One GRU per direction; bidirectional=False to match unidirectional scan
-        self.ssm_N = nn.GRU(in_ch, in_ch, batch_first=True)   # North→South
-        self.ssm_S = nn.GRU(in_ch, in_ch, batch_first=True)   # South→North
-        self.ssm_E = nn.GRU(in_ch, in_ch, batch_first=True)   # East→West (row-major L→R)
-        self.ssm_W = nn.GRU(in_ch, in_ch, batch_first=True)   # West→East (row-major R→L)
+        # One Mamba SSM per direction (unidirectional scan, direction encoded
+        # by how tokens are ordered/flipped before being passed in)
+        self.ssm_N = Mamba(d_model=in_ch, d_state=d_state, d_conv=d_conv, expand=expand)  # North→South
+        self.ssm_S = Mamba(d_model=in_ch, d_state=d_state, d_conv=d_conv, expand=expand)  # South→North
+        self.ssm_E = Mamba(d_model=in_ch, d_state=d_state, d_conv=d_conv, expand=expand)  # East→West
+        self.ssm_W = Mamba(d_model=in_ch, d_state=d_state, d_conv=d_conv, expand=expand)  # West→East
 
-        # SiLU gate before selective scan (paper Eq. 11)
+        # SiLU gate before selective scan (paper Eq. 11) — unchanged
         self.in_proj = nn.Linear(in_ch, in_ch)
         self.gate_proj = nn.Linear(in_ch, in_ch)
 
         self.out_proj = nn.Conv2d(in_ch, in_ch, kernel_size=1, bias=False)
         self.post_norm = nn.GroupNorm(num_groups=8, num_channels=in_ch)
 
-    def _scan(self, ssm: nn.GRU, tokens: torch.Tensor) -> torch.Tensor:
-        """Run SSM on token sequence; apply SiLU gate."""
+    def _scan(self, ssm: Mamba, tokens: torch.Tensor) -> torch.Tensor:
+        """Run Mamba SSM on token sequence; apply SiLU gate."""
         gate = F.silu(self.gate_proj(tokens))
-        out, _ = ssm(self.in_proj(tokens))
-        return out * gate   # selective scan via multiplicative gating
+        out = ssm(self.in_proj(tokens))   # Mamba returns a single tensor, not (out, h_n)
+        return out * gate                 # selective scan via multiplicative gating
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         B, C, H, W = x.shape
@@ -267,7 +344,6 @@ class RegionMambaBlock(nn.Module):
         x_norm = self.norm(x.permute(0, 2, 3, 1).reshape(B, H * W, C))
 
         # ---- North→South: column-major top→bottom ----
-        # Reshape to (B, W, H, C) then flatten inner → (B*W, H, C)
         ns_tokens = x_norm.reshape(B, H, W, C).permute(0, 2, 1, 3).reshape(B * W, H, C)
         ns_out = self._scan(self.ssm_N, ns_tokens)                   # (B*W, H, C)
         ns_out = ns_out.reshape(B, W, H, C).permute(0, 2, 1, 3).reshape(B, H * W, C)
@@ -289,10 +365,13 @@ class RegionMambaBlock(nn.Module):
 
         # ---- Aggregate (paper Eq. 12: sum over directions) ----
         f_rm = (ns_out + sn_out + ew_out + we_out)                   # (B, H*W, C)
-        f_rm = f_rm.reshape(B, H, W, C).permute(0, 3, 1, 2)         # (B, C, H, W)
+        f_rm = f_rm.reshape(B, H, W, C).permute(0, 3, 1, 2)          # (B, C, H, W)
 
         out = self.post_norm(self.out_proj(f_rm) + shortcut)
         return out
+
+
+
 
 
 # ---------------------------------------------------------------------------
@@ -488,246 +567,6 @@ class BAT_RM_UNet(nn.Module):
 #   DEVICE    : str    ('cuda' or 'cpu')
 
 segmentation_model = BAT_RM_UNet(n_classes=n_classes, in_channels=3).to(DEVICE)
-
-print(segmentation_model)
-print(
-    "Trainable parameters:",
-    sum(p.numel() for p in segmentation_model.parameters() if p.requires_grad),
-)
-
-
-
-
-
-"""
-Loss functions and metrics for BAT-RM U-Net OAR segmentation.
-Class weights are computed dynamically in the training cell —
-this cell only defines loss functions, metrics, and the optimizer.
-"""
-
-import torch
-import torch.nn.functional as F
-import numpy as np
-
-
-########################################
-# Utilities
-########################################
-
-def mask_to_one_hot(mask: torch.Tensor, num_classes: int) -> torch.Tensor:
-    """Convert integer mask (B,H,W) to one-hot float (B,C,H,W)."""
-    return (
-        F.one_hot(mask, num_classes=num_classes)
-        .permute(0, 3, 1, 2)
-        .float()
-    )
-
-
-########################################
-# Soft Dice Loss (class-balanced)
-########################################
-
-def dice_loss(
-    y_true: torch.Tensor,          # (B, C, H, W) one-hot
-    logits: torch.Tensor,          # (B, C, H, W) raw logits
-    class_weights: torch.Tensor,   # (C,)
-    smooth: float = 1.0,
-) -> torch.Tensor:
-    probs = torch.softmax(logits, dim=1)
-
-    intersection   = torch.sum(y_true * probs, dim=(2, 3))   # (B, C)
-    sum_true       = torch.sum(y_true,         dim=(2, 3))
-    sum_pred       = torch.sum(probs,          dim=(2, 3))
-
-    dice_per_class = (2.0 * intersection + smooth) / (sum_true + sum_pred + smooth)
-    weighted       = (dice_per_class * class_weights).sum(dim=1) / class_weights.sum()
-    return 1.0 - weighted.mean()
-
-
-########################################
-# Tversky Loss
-# Use instead of Dice when FN cost matters more (small bowel, GTV)
-# alpha=0.3 (FP penalty), beta=0.7 (FN penalty)
-########################################
-
-def tversky_loss(
-    y_true: torch.Tensor,
-    logits: torch.Tensor,
-    class_weights: torch.Tensor,
-    alpha: float = 0.3,
-    beta: float  = 0.7,
-    smooth: float = 1.0,
-) -> torch.Tensor:
-    probs = torch.softmax(logits, dim=1)
-    tp    = torch.sum(y_true * probs,           dim=(2, 3))
-    fp    = torch.sum((1 - y_true) * probs,     dim=(2, 3))
-    fn    = torch.sum(y_true * (1 - probs),     dim=(2, 3))
-
-    tversky  = (tp + smooth) / (tp + alpha * fp + beta * fn + smooth)
-    weighted = (tversky * class_weights).sum(dim=1) / class_weights.sum()
-    return 1.0 - weighted.mean()
-
-
-########################################
-# Multi-class Focal Loss
-########################################
-
-def focal_loss(
-    logits: torch.Tensor,
-    targets: torch.Tensor,          # (B, H, W) integer labels
-    class_weights: torch.Tensor,
-    gamma: float = 2.0,
-) -> torch.Tensor:
-    ce  = F.cross_entropy(logits, targets, weight=class_weights, reduction="none")
-    pt  = torch.exp(-ce)
-    return ((1 - pt) ** gamma * ce).mean()
-
-
-########################################
-# Boundary BCE Loss
-########################################
-
-def boundary_bce_loss(
-    b_hat: torch.Tensor,   # (B, 1, H_bat, W_bat) — model boundary head output
-    masks: torch.Tensor,   # (B, H, W)             — integer segmentation labels
-) -> torch.Tensor:
-    """
-    Supervise the BAT boundary head with morphological ground-truth boundaries.
-    Mask is downsampled to b_hat resolution (128x128) before computing boundaries.
-    """
-    H_bat, W_bat = b_hat.shape[2:]
-
-    masks_small = F.interpolate(
-        masks.unsqueeze(1).float(), size=(H_bat, W_bat), mode="nearest"
-    )
-
-    dilate      = F.max_pool2d(masks_small,   kernel_size=3, stride=1, padding=1)
-    erode       = -F.max_pool2d(-masks_small, kernel_size=3, stride=1, padding=1)
-    gt_boundary = (dilate - erode).clamp(0, 1)   # (B, 1, H_bat, W_bat)
-
-    return F.binary_cross_entropy(b_hat, gt_boundary)
-
-
-########################################
-# Region Smoothness Regularisation
-########################################
-
-def region_smoothness_loss(
-    logits: torch.Tensor,
-    masks: torch.Tensor,
-    n_classes: int,
-) -> torch.Tensor:
-    y_hat  = torch.softmax(logits, dim=1)
-    y_true = mask_to_one_hot(masks, n_classes).to(logits.device)
-
-    def spatial_gradients(t):
-        return t[:, :, :, 1:] - t[:, :, :, :-1], t[:, :, 1:, :] - t[:, :, :-1, :]
-
-    hat_gx,  hat_gy  = spatial_gradients(y_hat)
-    true_gx, true_gy = spatial_gradients(y_true)
-
-    return F.mse_loss(hat_gx, true_gx) + F.mse_loss(hat_gy, true_gy)
-
-
-########################################
-# Combined Loss
-########################################
-
-def combined_loss(
-    mask_indices: torch.Tensor,          # (B, H, W) integer labels
-    logits: torch.Tensor,                # (B, C, H, W) segmentation logits
-    b_hat: torch.Tensor,                 # (B, 1, H_bat, W_bat) boundary head output
-    class_weights_tensor: torch.Tensor,  # (C,) — computed dynamically in train cell
-    n_classes: int,
-) -> torch.Tensor:
-    """
-    Loss weights:
-        Dice         0.50  — primary overlap objective
-        Focal        0.20  — hard-example mining for class imbalance
-        Boundary BCE 0.20  — boundary head supervision
-        Smoothness   0.10  — shape regularisation
-    """
-    y_true = mask_to_one_hot(mask_indices, num_classes=n_classes).to(logits.device)
-
-    l_dice  = dice_loss(y_true, logits, class_weights_tensor)
-    l_focal = focal_loss(logits, mask_indices, class_weights_tensor)
-    l_bd    = boundary_bce_loss(b_hat, mask_indices)
-    l_reg   = region_smoothness_loss(logits, mask_indices, n_classes)
-
-    return 0.50 * l_dice + 0.20 * l_focal + 0.20 * l_bd + 0.10 * l_reg
-
-
-########################################
-# Metrics
-########################################
-
-def pixel_accuracy(logits: torch.Tensor, mask_indices: torch.Tensor) -> float:
-    preds = torch.argmax(logits, dim=1)
-    return (preds == mask_indices).float().mean().item()
-
-
-def mean_iou_score(
-    preds: torch.Tensor,
-    targets: torch.Tensor,
-    num_classes: int,
-) -> float:
-    ious = []
-    for cls in range(num_classes):
-        inter = ((preds == cls) & (targets == cls)).sum().item()
-        union = ((preds == cls) | (targets == cls)).sum().item()
-        ious.append(1.0 if union == 0 else inter / union)
-    return float(np.mean(ious))
-
-
-def dice_coefficient(
-    y_true: torch.Tensor,
-    logits: torch.Tensor,
-    smooth: float = 1.0,
-) -> torch.Tensor:
-    probs        = torch.softmax(logits, dim=1)
-    y_true       = y_true.float()
-    intersection = torch.sum(y_true * probs, dim=(1, 2, 3))
-    sum_true     = torch.sum(y_true,         dim=(1, 2, 3))
-    sum_pred     = torch.sum(probs,          dim=(1, 2, 3))
-    dice         = (2.0 * intersection + smooth) / (sum_true + sum_pred + smooth)
-    return dice.mean()
-
-
-########################################
-# Optimizer — AdamW + cosine annealing scheduler
-#
-# Why AdamW over Adam:
-#   Adam absorbs weight decay into the adaptive gradient scaling — so
-#   larger weights are not actually penalised proportionally.  AdamW
-#   fixes this with decoupled weight decay applied directly to parameters,
-#   giving cleaner L2 regularisation.  For boundary/fusion modules where
-#   precise weight magnitudes affect edge sharpness, this matters.
-#
-# LR reduced to 1e-4 (from 1e-3):
-#   AdamW converges more reliably at a lower base LR.  The scheduler
-#   handles warm restarts so the effective LR still varies across training.
-########################################
-
-LEARNING_RATE = 1e-4
-
-optimizer = torch.optim.AdamW(
-    segmentation_model.parameters(),
-    lr=LEARNING_RATE,
-    weight_decay=1e-5,    # paper value; keeps boundary/fusion weights in check
-    betas=(0.9, 0.999),
-    eps=1e-8,
-)
-
-# Cosine annealing with warm restarts (paper Section 3.6)
-#   T_0=50   : first restart after 50 epochs
-#   T_mult=2 : each subsequent cycle doubles in length (50 → 100 → 200)
-#   eta_min  : LR floor so the model still learns slowly in late cycles
-scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-    optimizer,
-    T_0=50,
-    T_mult=2,
-    eta_min=1e-6,
-)
 
 print(segmentation_model)
 print(
