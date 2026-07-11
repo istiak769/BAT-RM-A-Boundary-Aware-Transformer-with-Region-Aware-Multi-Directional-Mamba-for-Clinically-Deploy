@@ -7,7 +7,8 @@
 
 This repository contains the official implementation of **BAT-RM** for cervical cancer radiotherapy auto-contouring.
 
-> **BAT-RM: A Boundary-Aware Transformer with Multi-Directional Recurrent Context Module for Clinically Deployed Auto-Contouring in Cervical Cancer Radiotherapy**  
+> **BAT-RM:  Boundary-Aware Transformer with Region-Aware Multi-Directional Mamba
+for Clinically Deployed Cervical Cancer Radiotherapy Auto-Contouring**  
 > *Istiak Ahmed, Galib Ahmed, Kazi Shahriar Sanjid, Md. Tanzim Hossain, Md. Anwarul Islam, Shahrukh Khan, Md. Ashrif Rahman Arian, Md. Nishan Khan, Md. Misbah Khan, S M Hasibul Hoque, Rahnuma Shahrin Rista, Md Arifur Rahman, Syed Md. Akram Hussain, Md. Mostafa Kamal Sarker, Mohammad Monir Uddin*  
 > **Medical Image Analysis (Under Review)**  
 > 📄 [Preprint](https://arxiv.org/abs/XXXX.XXXXX)
@@ -40,7 +41,7 @@ The end-to-end pipeline spans multi-centre data collection, preprocessing, BAT-R
 
 ### BAT-RM Architecture
 
-The model integrates three complementary streams within a symmetric encoder-decoder backbone: a **Gated Boundary-Aware Transformer (BAT)** branch, a **Multi-Directional Recurrent Context Module (RM)** branch, and a **Boundary-Region Attention Fusion (BRAF)** gate.
+The model integrates three complementary streams within a symmetric encoder-decoder backbone: a **Gated Boundary-Aware Transformer (BAT)** branch, a **Multi-Directional Mamba Module (RM)** branch, and a **Boundary-Region Attention Fusion (BRAF)** gate.
 
 <p align="center">
   <img src="figures/Model_Architecture.png" alt="BAT-RM architecture" width="90%">
