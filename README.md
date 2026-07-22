@@ -131,29 +131,6 @@ BAT-RM is deployed at Bangladesh Medical University through a **production-grade
 
 ---
 
-## 📁 Repository Structure
-
-```
-BAT-RM/
-├── figures/
-│   ├── Workflow.png
-│   ├── Model_Architecture.png
-│   ├── Model_Architecture_BAT.png
-│   ├── Model_Architecture_RM.png
-│   └── Webview_1.png
-├── src/
-│   ├── model.py
-│   ├── train.py
-│   ├── inference.py
-│   └── utils.py
-├── configs/
-│   └── config.yaml
-├── scripts/
-│   ├── preprocess.py
-│   └── evaluate.py
-├── README.md
-└── requirements.txt
-```
 
 ---
 
