@@ -1,6 +1,6 @@
-# BAT-RM: Boundary-Aware Transformer with Multi-Directional Recurrent Context Module for Clinically Deployed Cervical Cancer Radiotherapy Auto-Contouring
+# BAT-RM: A Boundary-Aware Transformer with Region-Aware Multi-Directional Mamba for Clinically Deployed Cervical Cancer Radiotherapy Auto-Contouring
 
-[![arXiv](https://img.shields.io/badge/arXiv-XXXX.XXXXX-b31b1b.svg)](https://arxiv.org/abs/XXXX.XXXXX)
+[![arXiv](https://img.shields.io/badge/arXiv-XXXX.XXXXX-b31b1b.svg)](https://arxiv.org/abs/2607.11949)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-red.svg)](https://pytorch.org/)
@@ -11,7 +11,7 @@ This repository contains the official implementation of **BAT-RM** for cervical 
 for Clinically Deployed Cervical Cancer Radiotherapy Auto-Contouring**  
 > *Istiak Ahmed, Galib Ahmed, Kazi Shahriar Sanjid, Md. Tanzim Hossain, Md. Anwarul Islam, Shahrukh Khan, Md. Ashrif Rahman Arian, Md. Nishan Khan, Md. Misbah Khan, S M Hasibul Hoque, Rahnuma Shahrin Rista, Md Arifur Rahman, Syed Md. Akram Hussain, Md. Mostafa Kamal Sarker, Mohammad Monir Uddin*  
 > **Medical Image Analysis (Under Review)**  
-> 📄 [Preprint](https://arxiv.org/abs/XXXX.XXXXX)
+> 📄 [Preprint](https://arxiv.org/abs/2607.11949)
 
 ---
 
