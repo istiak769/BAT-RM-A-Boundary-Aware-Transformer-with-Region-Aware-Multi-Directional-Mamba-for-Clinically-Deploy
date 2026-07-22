@@ -177,23 +177,13 @@ python src/inference.py --input /path/to/dicom/ --output /path/to/rtstruct/
 python scripts/evaluate.py --pred /path/to/predictions/ --gt /path/to/ground_truth/
 ```
 
----
 
-## 📝 Citation
 
-If you use this work, please cite:
 
-```bibtex
-@article{ahmed2025batrm,
-  title={BAT-RM: A Boundary-Aware Transformer with Multi-Directional Recurrent Context Module for Clinically Deployed Auto-Contouring in Cervical Cancer Radiotherapy},
-  author={Ahmed, Istiak and Ahmed, Galib and Sanjid, Kazi Shahriar and Hossain, Md. Tanzim and Islam, Md. Anwarul and Khan, Shahrukh and Arian, Md. Ashrif Rahman and Khan, Md. Nishan and Khan, Md. Misbah and Hoque, S M Hasibul and Rista, Rahnuma Shahrin and Rahman, Md Arifur and Hussain, Syed Md. Akram and Sarker, Md. Mostafa Kamal and Uddin, Mohammad Monir},
-  journal={Medical Image Analysis},
-  year={2025},
-  note={Under Review}
-}
-```
 
----
+
+
+
 
 ## 📄 License
 
